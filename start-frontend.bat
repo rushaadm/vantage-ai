@@ -1,0 +1,9 @@
+@echo off
+echo Starting Vantage AI Frontend...
+cd frontend
+if not exist node_modules (
+    echo Installing dependencies...
+    call npm install
+)
+echo Starting Vite dev server...
+call npm run dev
