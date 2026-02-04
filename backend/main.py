@@ -13,10 +13,10 @@ from engine.reporter import AuditReport, get_ai_suggestions
 
 app = FastAPI(title="Vantage AI API")
 
-# CORS middleware
+# CORS middleware - allow all origins for cloud deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],  # Allow all origins for cloud deployment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
