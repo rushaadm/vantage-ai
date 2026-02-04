@@ -433,7 +433,11 @@ async def upload_video(file: UploadFile = File(...), sample_rate: str = Form("2"
         
         # Return response immediately, then start processing in background
         print(f"🚀 Starting background processing: job_id={job_id}, sample_rate={sample_rate}")
-        asyncio.create_task(process_video(job_id, str(video_path), sample_rate))
+        # Run CPU-bound processing in executor to avoid blocking event loop
+        import concurrent.futures
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        executor.submit(process_video, job_id, str(video_path), sample_rate)
+        print(f"✅ Background task submitted for job {job_id}")
         
         print(f"✅ Upload successful: job_id={job_id}, sample_rate={sample_rate}")
         return JSONResponse(
