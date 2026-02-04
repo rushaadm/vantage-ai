@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install minimal dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip install --upgrade pip setuptools wheel
+
+# Copy and install requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt || \
+    (pip install --no-cache-dir \
+        fastapi uvicorn python-multipart \
+        opencv-python-headless numpy scipy \
+        google-generativeai fpdf2 python-dotenv \
+        && echo "Some optional packages may have failed")
+
+# Copy application
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

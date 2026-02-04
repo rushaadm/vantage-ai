@@ -1,0 +1,16 @@
+# Core dependencies - guaranteed to work
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+opencv-python-headless==4.8.1.78
+numpy==1.26.2
+scipy==1.11.3
+google-generativeai==0.3.1
+fpdf2==2.7.5
+python-dotenv==1.0.0
+
+# Optional - may fail but app works without them
+# Cython>=0.29.0
+# torch==2.1.0
+# torchvision==0.16.0
+# pysaliency==0.2.19
