@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 import uuid
@@ -138,13 +138,14 @@ def process_video(job_id: str, video_path: str):
         result_path = RESULTS_DIR / f"{job_id}.json"
         
         # Initialize result file with progress tracking
-        total_frames_to_process = frame_count // 2  # Half the frames
+        total_frames_to_process = frame_count // sample_rate
         initial_data = {
             "job_id": job_id,
             "status": "processing",
             "fps": float(fps),
             "frame_count": frame_count,
             "total_frames_to_process": total_frames_to_process,
+            "sample_rate": sample_rate,
             "duration": round(duration, 2),
             "frames": [],
             "processed_frames": 0
@@ -153,9 +154,8 @@ def process_video(job_id: str, video_path: str):
         with open(result_path, "w") as f:
             json.dump(initial_data, f, separators=(',', ':'))
         
-        # Process HALF the frames (every 2nd frame) for speed
-        sample_rate = 2  # Process every 2nd frame (50% of frames)
-        print(f"📹 Processing {frame_count} frames (sampling every {sample_rate} frames = {frame_count // sample_rate} frames)")
+        # Process frames based on sample_rate from frontend slider
+        print(f"📹 Processing {frame_count} frames (sampling every {sample_rate} frames = {total_frames_to_process} frames)")
         
         batch_size = 20
         all_entropies = []
