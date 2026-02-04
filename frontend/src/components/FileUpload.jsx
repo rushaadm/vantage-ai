@@ -102,7 +102,7 @@ const SliderLabel = styled.label`
 function FileUpload() {
   const [uploading, setUploading] = useState(false)
   const [status, setStatus] = useState('')
-  const { setJobId, setVideoUrl } = useStore()
+  const { setJobId, setVideoUrl, frameSamplingRate, setFrameSamplingRate } = useStore()
 
   const onDrop = useCallback(async (acceptedFiles) => {
     const file = acceptedFiles[0]
