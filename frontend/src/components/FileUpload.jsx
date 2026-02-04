@@ -159,12 +159,23 @@ function FileUpload() {
       pollResults(jobId)
     } catch (error) {
       console.error('Upload error:', error)
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+      })
+      
       let errorMessage = 'Upload failed. Please try again.'
       
-      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || error.message?.includes('ERR_CONNECTION_REFUSED')) {
-        errorMessage = 'Cannot connect to server. Please make sure the backend is running on http://localhost:8000'
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        errorMessage = 'Upload timed out. The file may be too large or the server is slow. Please try again.'
+      } else if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || error.message?.includes('ERR_CONNECTION_REFUSED')) {
+        errorMessage = 'Cannot connect to server. Please check your internet connection or try again later.'
       } else if (error.response?.data?.error) {
         errorMessage = error.response.data.error
+      } else if (error.response?.status === 413) {
+        errorMessage = 'File too large. Please upload a smaller video file.'
       } else if (error.message) {
         errorMessage = error.message
       }
