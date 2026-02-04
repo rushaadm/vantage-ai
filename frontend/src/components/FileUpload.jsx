@@ -129,9 +129,11 @@ function FileUpload() {
       
       console.log('FormData created, sample_rate:', sampleRate)
 
-      const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+      // Force Render.com URL for production
+      const apiUrl = 'https://vantage-ai-25ct.onrender.com'
       console.log('API URL:', apiUrl)
       console.log('Full upload URL:', `${apiUrl}/upload`)
+      console.log('⚠️ Uploading to Render.com cloud server')
       
       setStatus('Connecting to server...')
       

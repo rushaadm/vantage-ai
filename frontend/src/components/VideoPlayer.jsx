@@ -4,8 +4,8 @@ import axios from 'axios'
 import { Download, RefreshCw, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
 
-// API URL with fallback
-const API_URL = import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+// API URL - always use Render.com for production
+const API_URL = 'https://vantage-ai-25ct.onrender.com'
 
 const Container = styled.div`
   max-width: 1200px;
