@@ -600,7 +600,7 @@ function VideoPlayer() {
   })
 
   return (
-    <Container>
+    <>
       {videoUrl && (
         <GlassCard>
           <VideoContainer>
