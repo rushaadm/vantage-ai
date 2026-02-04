@@ -56,6 +56,49 @@ const Status = styled.div`
   color: ${props => props.theme.colors.cyan};
 `
 
+const SliderContainer = styled.div`
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(0, 242, 255, 0.1);
+  border-radius: 8px;
+`
+
+const Slider = styled.input`
+  width: 100%;
+  margin: 0.5rem 0;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+  -webkit-appearance: none;
+  
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: ${props => props.theme.colors.cyan};
+    cursor: pointer;
+  }
+  
+  &::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: ${props => props.theme.colors.cyan};
+    cursor: pointer;
+    border: none;
+  }
+`
+
+const SliderLabel = styled.label`
+  color: ${props => props.theme.colors.text};
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+`
+
 function FileUpload() {
   const [uploading, setUploading] = useState(false)
   const [status, setStatus] = useState('')
@@ -179,6 +222,25 @@ function FileUpload() {
       
       {status && (
         <Status>{status}</Status>
+      )}
+      
+      {/* Frame sampling slider - show before upload */}
+      {!uploading && (
+        <SliderContainer>
+          <SliderLabel>
+            Frame Sampling Rate: Process every {frameSamplingRate === 1 ? 'frame (100%)' : frameSamplingRate === 2 ? '2nd frame (50%)' : frameSamplingRate === 3 ? '3rd frame (33%)' : `${frameSamplingRate}th frame (${Math.round(100/frameSamplingRate)}%)`}
+          </SliderLabel>
+          <Slider
+            type="range"
+            min="1"
+            max="10"
+            value={frameSamplingRate}
+            onChange={(e) => setFrameSamplingRate(parseInt(e.target.value))}
+          />
+          <Subtext style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
+            Lower = more frames analyzed (slower but more detailed). Higher = fewer frames (faster but less granular).
+          </Subtext>
+        </SliderContainer>
       )}
     </GlassCard>
   )

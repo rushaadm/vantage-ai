@@ -601,37 +601,7 @@ function VideoPlayer() {
 
   return (
     <Container>
-      {loading && (
-        <GlassCard>
-          <LoadingContainer>
-            <LoadingSpinner />
-            <LoadingText>Processing video...</LoadingText>
-            <ProgressBar>
-              <ProgressFill style={{ width: `${progress.percent}%` }} />
-            </ProgressBar>
-            <LoadingText style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
-              {progress.processed} / {progress.total} frames ({progress.percent.toFixed(1)}%)
-            </LoadingText>
-          </LoadingContainer>
-        </GlassCard>
-      )}
-
-      {loading && (
-        <GlassCard>
-          <LoadingContainer>
-            <LoadingSpinner />
-            <LoadingText>Processing video...</LoadingText>
-            <ProgressBar>
-              <ProgressFill style={{ width: `${progress.percent}%` }} />
-            </ProgressBar>
-            <LoadingText style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
-              {progress.processed} / {progress.total} frames ({progress.percent.toFixed(1)}%)
-            </LoadingText>
-          </LoadingContainer>
-        </GlassCard>
-      )}
-
-      {!loading && videoUrl && (
+      {videoUrl && (
         <GlassCard>
           <VideoContainer>
             <Video 
@@ -641,7 +611,21 @@ function VideoPlayer() {
               style={{ display: 'block', width: '100%', backgroundColor: '#000' }}
             />
             <Canvas ref={canvasRef} style={{ display: results?.frames?.length > 0 ? 'block' : 'none' }} />
+            
+            {/* Progress bar overlay - only when loading */}
+            {loading && (
+              <ProgressOverlay>
+                <LoadingText style={{ color: '#00F2FF', marginBottom: '0.5rem' }}>Processing video...</LoadingText>
+                <ProgressBar>
+                  <ProgressFill style={{ width: `${progress.percent}%` }} />
+                </ProgressBar>
+                <LoadingText style={{ fontSize: '0.875rem', marginTop: '0.5rem', color: '#FFFFFF' }}>
+                  {progress.processed} / {progress.total} frames ({progress.percent.toFixed(1)}%)
+                </LoadingText>
+              </ProgressOverlay>
+            )}
           </VideoContainer>
+          
 
           <Controls>
             <Button onClick={handleDownloadPDF} disabled={!results || !results.frames || results.frames.length === 0}>
