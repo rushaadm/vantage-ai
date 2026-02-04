@@ -34,9 +34,9 @@ engine = VantageEngine()
 # Removed batch processing to reduce memory usage
 
 def process_video(job_id: str, video_path: str):
-    """Lightweight video processing - aggressive sampling to reduce CPU/memory load"""
+    """Granular video processing - optimized for cloud deployment"""
     start_time = time.time()
-    max_processing_time = 20  # 20 second limit
+    max_processing_time = 60  # Increased for cloud processing
     
     try:
         cap = cv2.VideoCapture(video_path)
@@ -44,11 +44,21 @@ def process_video(job_id: str, video_path: str):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps if fps > 0 else 0
         
-        # Aggressive optimizations for lightweight processing
-        PROCESS_WIDTH = 320  # Much smaller resolution
-        SAMPLE_RATE = max(1, int(fps / 2))  # Sample every 0.5 seconds (2 FPS max)
-        if SAMPLE_RATE > 15:
-            SAMPLE_RATE = 15  # Cap at every 15th frame
+        # Granular processing - higher resolution and more frames
+        PROCESS_WIDTH = 480  # Higher resolution for granularity
+        # Process every 0.1 seconds (10 FPS analysis rate for smooth heatmaps)
+        BASE_SAMPLE_RATE = max(1, int(fps / 10))  # 10 samples per second
+        if BASE_SAMPLE_RATE < 1:
+            BASE_SAMPLE_RATE = 1
+        
+        # For very long videos, cap at reasonable number but keep granularity
+        max_samples = min(300, int(duration * 10))  # Max 300 samples or 10 per second
+        if frame_count > max_samples * BASE_SAMPLE_RATE:
+            BASE_SAMPLE_RATE = max(1, int(frame_count / max_samples))
+        
+        # Motion thresholds for adaptive sampling
+        motion_threshold_high = 0.1  # High motion threshold
+        motion_threshold_low = 0.02   # Low motion threshold
         
         frames_data = []
         all_entropies = []
@@ -56,15 +66,35 @@ def process_video(job_id: str, video_path: str):
         
         frame_idx = 0
         prev_frame = None
+        processed_frames_list = []  # For progressive streaming
+        adaptive_sample_rate = BASE_SAMPLE_RATE  # Initialize adaptive rate
         
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             
-            # Skip frames based on sample rate
-            if frame_idx % SAMPLE_RATE != 0:
+            # Adaptive sampling: adjust rate based on motion
+            if prev_frame is not None:
+                # Quick motion check
+                prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+                curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if prev_gray.shape == curr_gray.shape:
+                    diff = cv2.absdiff(prev_gray, curr_gray)
+                    motion_level = np.mean(diff) / 255.0
+                    
+                    # Adjust sample rate based on motion
+                    if motion_level > motion_threshold_high:
+                        adaptive_sample_rate = max(1, BASE_SAMPLE_RATE // 2)  # More frames (2x)
+                    elif motion_level < motion_threshold_low:
+                        adaptive_sample_rate = BASE_SAMPLE_RATE * 2  # Fewer frames (0.5x)
+                    else:
+                        adaptive_sample_rate = BASE_SAMPLE_RATE  # Normal rate
+            
+            # Skip frames based on adaptive sample rate
+            if frame_idx % adaptive_sample_rate != 0:
                 frame_idx += 1
+                prev_frame = frame  # Update prev_frame even when skipping
                 continue
             
             # Check time limit
@@ -82,16 +112,18 @@ def process_video(job_id: str, video_path: str):
             else:
                 frame_small = frame
             
-            # Get saliency and motion maps
+            # Get saliency and motion maps (skip motion if no prev frame to save time)
             saliency_map = engine.get_saliency_map(frame_small)
             
             if prev_frame is not None:
-                if prev_frame.shape[1] != frame_small.shape[1]:
-                    prev_frame_small = cv2.resize(prev_frame, (frame_small.shape[1], frame_small.shape[0]))
+                # Resize prev_frame if needed
+                if prev_frame.shape[1] != frame_small.shape[1] or prev_frame.shape[0] != frame_small.shape[0]:
+                    prev_frame_small = cv2.resize(prev_frame, (frame_small.shape[1], frame_small.shape[0]), interpolation=cv2.INTER_LINEAR)
                 else:
                     prev_frame_small = prev_frame
                 motion_map = engine.get_motion_map(prev_frame_small, frame_small)
             else:
+                # Skip motion calculation for first frame
                 motion_map = np.zeros((frame_small.shape[0], frame_small.shape[1]), dtype=np.float32)
             
             # Calculate metrics
@@ -99,10 +131,17 @@ def process_video(job_id: str, video_path: str):
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
             
-            # Aggressive downsampling for storage (1/8 resolution to save memory)
+            # Granular heatmap - higher resolution for pixel-level detail
             heatmap_h, heatmap_w = saliency_map.shape[:2]
-            saliency_small = cv2.resize(saliency_map, (heatmap_w // 8, heatmap_h // 8), interpolation=cv2.INTER_AREA)
-            motion_small = cv2.resize(motion_map, (heatmap_w // 8, heatmap_h // 8), interpolation=cv2.INTER_AREA)
+            # Store at 1/2 resolution for granularity (was 1/4)
+            target_w = max(64, heatmap_w // 2)  # Higher resolution for granularity
+            target_h = max(64, heatmap_h // 2)  # Higher resolution for granularity
+            # Apply Gaussian blur for smoothness before downsampling
+            saliency_blurred = cv2.GaussianBlur(saliency_map, (7, 7), 1.5)
+            motion_blurred = cv2.GaussianBlur(motion_map, (7, 7), 1.5)
+            # Use cubic interpolation for smooth, granular heatmaps
+            saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
             
             # Store frame data (sampled frames only)
             frames_data.append({
@@ -113,7 +152,7 @@ def process_video(job_id: str, video_path: str):
                 "saliency_heatmap": saliency_small.tolist(),
                 "motion_heatmap": motion_small.tolist(),
                 "original_size": [h, w],
-                "heatmap_size": [heatmap_h // 8, heatmap_w // 8]
+                "heatmap_size": [target_h, target_w]
             })
             
             prev_frame = frame.copy()
@@ -165,6 +204,7 @@ def process_video(job_id: str, video_path: str):
         # Save results
         result_data = {
             "job_id": job_id,
+            "status": "complete",  # Explicitly set status to complete
             "fps": fps,
             "frame_count": frame_count,
             "processed_frames": len(frames_data),
@@ -185,36 +225,59 @@ def process_video(job_id: str, video_path: str):
         print(f"Error processing video: {e}")
         import traceback
         traceback.print_exc()
-        error_path = RESULTS_DIR / f"{job_id}_error.json"
+        # Save error result so frontend stops polling
+        error_path = RESULTS_DIR / f"{job_id}.json"
         with open(error_path, "w") as f:
-            json.dump({"error": str(e)}, f)
+            json.dump({
+                "job_id": job_id,
+                "status": "error",
+                "error": str(e),
+                "message": "Video processing failed. Please try again with a different video."
+            }, f)
 
 @app.post("/upload")
 async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """Upload video and start processing"""
-    job_id = str(uuid.uuid4())
-    file_extension = Path(file.filename).suffix
-    video_path = UPLOAD_DIR / f"{job_id}{file_extension}"
-    
-    # Save uploaded file
-    with open(video_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-    
-    # Start background processing
-    background_tasks.add_task(process_video, job_id, str(video_path))
-    
-    return {"job_id": job_id, "status": "processing"}
+    try:
+        job_id = str(uuid.uuid4())
+        file_extension = Path(file.filename).suffix
+        
+        # Validate file extension
+        if file_extension.lower() not in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
+            return {"error": "Unsupported file format. Please upload MP4, MOV, AVI, MKV, or WEBM."}, 400
+        
+        video_path = UPLOAD_DIR / f"{job_id}{file_extension}"
+        
+        # Save uploaded file
+        with open(video_path, "wb") as f:
+            content = await file.read()
+            if len(content) == 0:
+                return {"error": "Empty file uploaded"}, 400
+            f.write(content)
+        
+        # Start background processing
+        background_tasks.add_task(process_video, job_id, str(video_path))
+        
+        return {"job_id": job_id, "status": "processing"}
+    except Exception as e:
+        print(f"Upload error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Upload failed: {str(e)}"}, 500
 
 @app.get("/results/{job_id}")
 async def get_results(job_id: str):
-    """Get processing results"""
+    """Get processing results (supports progressive/partial results)"""
     result_path = RESULTS_DIR / f"{job_id}.json"
     if not result_path.exists():
         return {"status": "processing", "message": "Video is still being processed"}
     
     with open(result_path, "r") as f:
-        return json.load(f)
+        data = json.load(f)
+        # If partial results, mark as still processing
+        if data.get("partial", False):
+            data["status"] = "processing"
+        return data
 
 @app.get("/download-pdf/{job_id}")
 async def download_pdf(job_id: str):

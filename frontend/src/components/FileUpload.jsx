@@ -74,13 +74,22 @@ function FileUpload() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await axios.post('http://localhost:8000/upload', formData, {
+      const response = await axios.post(`${API_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       })
 
+      // Check for error response
+      if (response.data.error) {
+        throw new Error(response.data.error)
+      }
+
       const jobId = response.data.job_id
+      if (!jobId) {
+        throw new Error('No job ID returned from server')
+      }
+
       setJobId(jobId)
       setStatus('Video uploaded! Processing...')
       
@@ -92,7 +101,17 @@ function FileUpload() {
       pollResults(jobId)
     } catch (error) {
       console.error('Upload error:', error)
-      setStatus('Upload failed. Please try again.')
+      let errorMessage = 'Upload failed. Please try again.'
+      
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || error.message?.includes('ERR_CONNECTION_REFUSED')) {
+        errorMessage = 'Cannot connect to server. Please make sure the backend is running on http://localhost:8000'
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      setStatus(`Upload failed: ${errorMessage}`)
       setUploading(false)
     }
   }, [])
@@ -104,7 +123,7 @@ function FileUpload() {
     const interval = setInterval(async () => {
       attempts++
       try {
-        const response = await axios.get(`http://localhost:8000/results/${jobId}`)
+        const response = await axios.get(`${API_URL}/results/${jobId}`)
         
         if (response.data.status !== 'processing') {
           clearInterval(interval)
