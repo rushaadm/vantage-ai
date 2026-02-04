@@ -126,7 +126,7 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
         "fixation_count": len(fixation_points)
     }, metrics, frame_small.copy()  # Always return frame for motion
 
-def process_video(job_id: str, video_path: str):
+def process_video(job_id: str, video_path: str, sample_rate: int = 2):
     """NUCLEAR OPTION: Process in batches, save incrementally, delete frames immediately"""
     start_time = time.time()
     
