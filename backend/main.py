@@ -216,8 +216,17 @@ def process_video(job_id: str, video_path: str):
         }
         
         result_path = RESULTS_DIR / f"{job_id}.json"
+        print(f"Saving results to {result_path}")
+        print(f"Results: {len(frames_data)} frames, status: complete")
         with open(result_path, "w") as f:
             json.dump(result_data, f)
+        print(f"Results saved successfully to {result_path}")
+        
+        # Verify file was written
+        if result_path.exists():
+            print(f"✅ Results file confirmed: {result_path.exists()}, size: {result_path.stat().st_size} bytes")
+        else:
+            print(f"❌ ERROR: Results file not found after write!")
         
         print(f"Processing complete for job {job_id} in {time.time() - start_time:.2f}s ({len(frames_data)} frames)")
         
