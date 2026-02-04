@@ -119,13 +119,19 @@ function FileUpload() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('sample_rate', useStore.getState().frameSamplingRate || 2)
+      const sampleRate = useStore.getState().frameSamplingRate || 2
+      formData.append('sample_rate', sampleRate.toString())
+      
+      console.log('Uploading file:', file.name, 'sample_rate:', sampleRate)
 
       const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+      console.log('Uploading to:', apiUrl)
+      
       const response = await axios.post(`${apiUrl}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 60000, // 60 second timeout for large files
       })
 
       console.log('Upload response:', response.data)

@@ -377,11 +377,17 @@ def _finalize_results(job_id, all_entropies, all_conflicts, all_saliencies, all_
     print(f"✅ Complete: {data['processed_frames']} frames in {elapsed:.1f}s")
 
 @app.post("/upload")
-async def upload_video(file: UploadFile = File(...), sample_rate: int = Form(2)):
+async def upload_video(file: UploadFile = File(...), sample_rate: str = Form("2")):
     """Upload video and start processing"""
     try:
+        print(f"📤 Upload request received: filename={file.filename}, sample_rate={sample_rate}")
+        
         # Validate sample_rate (1-10)
-        sample_rate = max(1, min(10, int(sample_rate)))
+        try:
+            sample_rate = max(1, min(10, int(sample_rate)))
+        except (ValueError, TypeError):
+            sample_rate = 2
+            print(f"⚠️ Invalid sample_rate, defaulting to 2")
         
         if not file.filename:
             return JSONResponse(
@@ -400,6 +406,7 @@ async def upload_video(file: UploadFile = File(...), sample_rate: int = Form(2))
         
         video_path = UPLOAD_DIR / f"{job_id}{file_extension}"
         
+        print(f"💾 Saving video to: {video_path}")
         with open(video_path, "wb") as f:
             content = await file.read()
             if len(content) == 0:
@@ -408,6 +415,8 @@ async def upload_video(file: UploadFile = File(...), sample_rate: int = Form(2))
                     content={"error": "Empty file"}
                 )
             f.write(content)
+        
+        print(f"✅ File saved: {len(content)} bytes")
         
         # Start background processing with sample_rate
         asyncio.create_task(process_video(job_id, str(video_path), sample_rate))
