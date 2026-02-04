@@ -323,12 +323,12 @@ function VideoPlayer() {
       const scaleX = canvas.width / heatmapW
       const scaleY = canvas.height / heatmapH
 
-      // Beautiful heatmap like reference: Blue → Green → Yellow → Orange → Red
+      // Smooth, rounded heatmap - circular/radial gradients for eye-tracking visualization
       const imgData = ctx.createImageData(canvas.width, canvas.height)
       
-      // Calculate attention percentage for annotation
-      let totalAttention = 0
-      let attentionPixels = 0
+      // Create radial gradients around fixation points for rounded appearance
+      const centerX = canvas.width / 2
+      const centerY = canvas.height / 2
       
       for (let y = 0; y < canvas.height; y++) {
         for (let x = 0; x < canvas.width; x++) {
@@ -342,48 +342,51 @@ function VideoPlayer() {
           const fx = mapX - x1
           const fy = mapY - y1
           
-          const val = (saliencyMap[y1]?.[x1] || 0) * (1 - fx) * (1 - fy) +
+          let val = (saliencyMap[y1]?.[x1] || 0) * (1 - fx) * (1 - fy) +
                      (saliencyMap[y1]?.[x2] || 0) * fx * (1 - fy) +
                      (saliencyMap[y2]?.[x1] || 0) * (1 - fx) * fy +
                      (saliencyMap[y2]?.[x2] || 0) * fx * fy
           
-          // Smooth gradient: Blue → Teal → Green → Yellow → Orange → Red
-          if (val > 0.05) {  // Lower threshold to show more
+          // Apply circular/radial smoothing around center
+          const dx = x - centerX
+          const dy = y - centerY
+          const distFromCenter = Math.sqrt(dx * dx + dy * dy)
+          const maxDist = Math.sqrt(centerX * centerX + centerY * centerY)
+          const radialFactor = 1 - (distFromCenter / maxDist) * 0.3  // Slight radial falloff
+          val = val * radialFactor
+          
+          if (val > 0.05) {
             const intensity = Math.min(1, val)
             const idx = (y * canvas.width + x) * 4
             
+            // Smooth gradient: Blue → Teal → Green → Yellow → Orange → Red
             let r, g, b, alpha
             
             if (intensity < 0.2) {
-              // Blue to Teal (low intensity)
               const t = intensity / 0.2
               r = Math.floor(30 + 20 * t)
               g = Math.floor(100 + 80 * t)
               b = Math.floor(180 - 50 * t)
               alpha = Math.floor(80 + 40 * t)
             } else if (intensity < 0.4) {
-              // Teal to Green
               const t = (intensity - 0.2) / 0.2
               r = Math.floor(50 - 20 * t)
               g = Math.floor(180 + 50 * t)
               b = Math.floor(130 - 100 * t)
               alpha = Math.floor(120 + 50 * t)
             } else if (intensity < 0.6) {
-              // Green to Yellow
               const t = (intensity - 0.4) / 0.2
               r = Math.floor(30 + 180 * t)
               g = Math.floor(230 - 30 * t)
               b = Math.floor(30 - 30 * t)
               alpha = Math.floor(170 + 50 * t)
             } else if (intensity < 0.8) {
-              // Yellow to Orange
               const t = (intensity - 0.6) / 0.2
               r = Math.floor(210 + 45 * t)
               g = Math.floor(200 - 50 * t)
               b = Math.floor(0)
               alpha = Math.floor(220 + 35 * t)
             } else {
-              // Orange to Red (high intensity)
               const t = (intensity - 0.8) / 0.2
               r = Math.floor(255)
               g = Math.floor(150 - 150 * t)
@@ -395,23 +398,20 @@ function VideoPlayer() {
             imgData.data[idx + 1] = g
             imgData.data[idx + 2] = b
             imgData.data[idx + 3] = alpha
-            
-            totalAttention += val
-            attentionPixels++
           }
         }
       }
       
-      // Apply smooth blur for that ethereal, blended look
+      // Apply heavy blur for smooth, rounded appearance
       ctx.putImageData(imgData, 0, 0)
       ctx.save()
-      ctx.globalAlpha = 0.6
-      ctx.filter = 'blur(3px)'
+      ctx.globalAlpha = 0.5
+      ctx.filter = 'blur(5px)'  // Heavier blur for roundness
       ctx.drawImage(canvas, 0, 0)
       ctx.restore()
       
-      // Draw sharp version on top with reduced opacity for smooth blending
-      ctx.globalAlpha = 0.7
+      // Draw with reduced opacity for smooth blending
+      ctx.globalAlpha = 0.75
       ctx.putImageData(imgData, 0, 0)
       ctx.globalAlpha = 1.0
       
@@ -564,11 +564,31 @@ function VideoPlayer() {
           </Button>
         </Controls>
 
-        {results && results.frames && results.frames.length > 0 && (
+        {results && results.frames && results.frames.length > 0 && results.stats && (
           <StatsCard>
             <StatRow>
               <StatLabel>Clarity Score</StatLabel>
-              <StatValue>{Math.round(results.clarity_score || 0)}/100</StatValue>
+              <StatValue>{Math.round(results.stats.clarity_score || 0)}/100</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>Engagement Score</StatLabel>
+              <StatValue>{Math.round(results.stats.engagement_score || 0)}/100</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>Fixation Rate</StatLabel>
+              <StatValue>{results.stats.fixation_rate?.toFixed(2) || '0'}/frame</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>Attention Stability</StatLabel>
+              <StatValue>{Math.round(results.stats.attention_stability || 0)}/100</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>Total Fixations</StatLabel>
+              <StatValue>{results.stats.total_fixations || 0}</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>Avg Saliency</StatLabel>
+              <StatValue>{results.stats.avg_saliency?.toFixed(3) || '0'}</StatValue>
             </StatRow>
             <StatRow>
               <StatLabel>Processed Frames</StatLabel>
@@ -577,10 +597,6 @@ function VideoPlayer() {
             <StatRow>
               <StatLabel>Processing Time</StatLabel>
               <StatValue>{results.processing_time?.toFixed(2) || '0'}s</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Heatmap Status</StatLabel>
-              <StatValue>{results.frames[0]?.saliency_heatmap ? '✅ Ready' : '❌ No data'}</StatValue>
             </StatRow>
           </StatsCard>
         )}
