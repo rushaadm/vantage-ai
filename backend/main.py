@@ -38,9 +38,9 @@ engine = VantageEngine()
 # Removed batch processing to reduce memory usage
 
 def process_video(job_id: str, video_path: str):
-    """Granular video processing - optimized for cloud deployment"""
+    """Process ALL frames - complete analysis"""
     start_time = time.time()
-    max_processing_time = 60  # Increased for cloud processing
+    # No time limit - process all frames (user wants complete analysis)
     
     try:
         cap = cv2.VideoCapture(video_path)
@@ -101,11 +101,11 @@ def process_video(job_id: str, video_path: str):
                 prev_frame = frame  # Update prev_frame even when skipping
                 continue
             
-            # Check time limit
-            elapsed = time.time() - start_time
-            if elapsed > max_processing_time:
-                print(f"Time limit reached at frame {frame_idx}")
-                break
+            # Remove time limit - process all frames (user wants complete analysis)
+            # elapsed = time.time() - start_time
+            # if elapsed > max_processing_time:
+            #     print(f"Time limit reached at frame {frame_idx}")
+            #     break
             
             # Aggressive downscaling for speed
             h, w = frame.shape[:2]
@@ -203,6 +203,11 @@ def process_video(job_id: str, video_path: str):
             
             prev_frame = frame.copy()
             frame_idx += 1
+            
+            # Progress update every 100 frames
+            if frame_idx % 100 == 0:
+                elapsed = time.time() - start_time
+                print(f"Processed {frame_idx}/{frame_count} frames ({frame_idx/frame_count*100:.1f}%) in {elapsed:.1f}s")
         
         cap.release()
         
