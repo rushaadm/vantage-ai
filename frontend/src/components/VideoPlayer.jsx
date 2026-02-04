@@ -585,79 +585,91 @@ function VideoPlayer() {
         </GlassCard>
       )}
 
-      <GlassCard>
-        {/* Debug info */}
-        <div style={{ marginBottom: '1rem', padding: '0.5rem', background: 'rgba(0, 242, 255, 0.1)', borderRadius: '8px', fontSize: '0.875rem', color: '#00F2FF' }}>
-          Debug: loading={loading ? 'yes' : 'no'}, results={results ? `✅ (${results.frames?.length || 0} frames)` : '❌'}, jobId={jobId || 'none'}
-        </div>
+      {loading && (
+        <GlassCard>
+          <LoadingContainer>
+            <LoadingSpinner />
+            <LoadingText>Processing video...</LoadingText>
+            <ProgressBar>
+              <ProgressFill style={{ width: `${progress.percent}%` }} />
+            </ProgressBar>
+            <LoadingText style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
+              {progress.processed} / {progress.total} frames ({progress.percent.toFixed(1)}%)
+            </LoadingText>
+          </LoadingContainer>
+        </GlassCard>
+      )}
 
-        <VideoContainer>
-          <Video 
-            ref={videoRef}
-            src={videoUrl}
-            controls
-            style={{ display: 'block', width: '100%' }}
-          />
-          <Canvas ref={canvasRef} style={{ display: results?.frames?.length > 0 ? 'block' : 'none' }} />
-        </VideoContainer>
+      {!loading && videoUrl && (
+        <GlassCard>
+          <VideoContainer>
+            <Video 
+              ref={videoRef}
+              src={videoUrl}
+              controls
+              style={{ display: 'block', width: '100%', backgroundColor: '#000' }}
+            />
+            <Canvas ref={canvasRef} style={{ display: results?.frames?.length > 0 ? 'block' : 'none' }} />
+          </VideoContainer>
 
-        <Controls>
-          <Button onClick={handleDownloadPDF} disabled={!results || !results.frames || results.frames.length === 0}>
-            <Download size={20} />
-            Download PDF Report {results?.frames?.length > 0 ? `(${results.frames.length} frames)` : '(no data)'}
-          </Button>
-          <Button onClick={handleReset}>
-            <RefreshCw size={20} />
-            Upload New Video
-          </Button>
-        </Controls>
+          <Controls>
+            <Button onClick={handleDownloadPDF} disabled={!results || !results.frames || results.frames.length === 0}>
+              <Download size={20} />
+              Download PDF Report {results?.frames?.length > 0 ? `(${results.frames.length} frames)` : '(no data)'}
+            </Button>
+            <Button onClick={handleReset}>
+              <RefreshCw size={20} />
+              Upload New Video
+            </Button>
+          </Controls>
 
-        {results && results.frames && results.frames.length > 0 && results.stats && (
-          <StatsCard>
-            <StatRow>
-              <StatLabel>
-                Clarity Score
-                <Tooltip data-tooltip={results.stats.score_explanations?.clarity_score || "Measures visual hierarchy clarity based on motion-saliency conflict. Lower conflict indicates clearer visual structure (Itti & Koch, 2001)."}>ℹ️</Tooltip>
-              </StatLabel>
-              <StatValue>{Math.round(results.stats.clarity_score || 0)}/100</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>
-                Engagement Score
-                <Tooltip data-tooltip={results.stats.score_explanations?.engagement_score || "Combines saliency intensity and fixation rate to measure viewer engagement. Higher values indicate stronger visual interest (Yarbus, 1967)."}>ℹ️</Tooltip>
-              </StatLabel>
-              <StatValue>{Math.round(results.stats.engagement_score || 0)}/100</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>
-                Attention Stability
-                <Tooltip data-tooltip={results.stats.score_explanations?.attention_stability || "Measures consistency of attention patterns across frames. Lower entropy variance indicates more stable, predictable attention (Tatler et al., 2011)."}>ℹ️</Tooltip>
-              </StatLabel>
-              <StatValue>{Math.round(results.stats.attention_stability || 0)}/100</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Fixation Rate</StatLabel>
-              <StatValue>{results.stats.fixation_rate?.toFixed(2) || '0'}/frame</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Total Fixations</StatLabel>
-              <StatValue>{results.stats.total_fixations || 0}</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Avg Saliency</StatLabel>
-              <StatValue>{results.stats.avg_saliency?.toFixed(3) || '0'}</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Processed Frames</StatLabel>
-              <StatValue>{results.processed_frames || results.frames?.length || 0}</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Processing Time</StatLabel>
-              <StatValue>{results.processing_time?.toFixed(2) || '0'}s</StatValue>
-            </StatRow>
-          </StatsCard>
-        )}
-      </GlassCard>
+          {results && results.frames && results.frames.length > 0 && results.stats && (
+            <StatsCard>
+              <StatRow>
+                <StatLabel>
+                  Clarity Score
+                  <Tooltip data-tooltip={results.stats.score_explanations?.clarity_score || "Measures visual hierarchy clarity based on motion-saliency conflict. Lower conflict indicates clearer visual structure (Itti & Koch, 2001)."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{Math.round(results.stats.clarity_score || 0)}/100</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>
+                  Engagement Score
+                  <Tooltip data-tooltip={results.stats.score_explanations?.engagement_score || "Combines saliency intensity and fixation rate to measure viewer engagement. Higher values indicate stronger visual interest (Yarbus, 1967)."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{Math.round(results.stats.engagement_score || 0)}/100</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>
+                  Attention Stability
+                  <Tooltip data-tooltip={results.stats.score_explanations?.attention_stability || "Measures consistency of attention patterns across frames. Lower entropy variance indicates more stable, predictable attention (Tatler et al., 2011)."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{Math.round(results.stats.attention_stability || 0)}/100</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>Fixation Rate</StatLabel>
+                <StatValue>{results.stats.fixation_rate?.toFixed(2) || '0'}/frame</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>Total Fixations</StatLabel>
+                <StatValue>{results.stats.total_fixations || 0}</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>Avg Saliency</StatLabel>
+                <StatValue>{results.stats.avg_saliency?.toFixed(3) || '0'}</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>Processed Frames</StatLabel>
+                <StatValue>{results.processed_frames || results.frames?.length || 0}</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>Processing Time</StatLabel>
+                <StatValue>{results.processing_time?.toFixed(2) || '0'}s</StatValue>
+              </StatRow>
+            </StatsCard>
+          )}
+        </GlassCard>
+      )}
     </Container>
   )
 }

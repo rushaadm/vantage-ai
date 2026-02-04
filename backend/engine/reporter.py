@@ -173,14 +173,9 @@ def get_ai_suggestions(stats):
     """Generate AI suggestions using Gemini API"""
     try:
         import google.generativeai as genai
-        import os
-        from dotenv import load_dotenv
         
-        load_dotenv()
-        api_key = os.getenv('GEMINI_API_KEY')
-        
-        if not api_key:
-            return "AI suggestions unavailable. Please set GEMINI_API_KEY environment variable."
+        # Use provided API key
+        api_key = "AIzaSyBFjEpZYCRtvqApOSCqrie4TfhXP08Xc_c"
         
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-pro')
