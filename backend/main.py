@@ -408,7 +408,9 @@ async def stream_results(job_id: str):
                         return
                     else:
                         # Just send progress, no partial data
-                        yield f"data: {json.dumps({'status': 'processing', 'processed_frames': data.get('processed_frames', 0), 'message': f'Processing... ({data.get(\"processed_frames\", 0)} frames)'})}\n\n"
+                        processed_count = data.get('processed_frames', 0)
+                        progress_msg = f'Processing... ({processed_count} frames)'
+                        yield f"data: {json.dumps({'status': 'processing', 'processed_frames': processed_count, 'message': progress_msg})}\n\n"
                 except:
                     yield f"data: {json.dumps({'status': 'error', 'error': 'Results file corrupted'})}\n\n"
                     return
