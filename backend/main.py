@@ -8,6 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from engine.saliency import VantageEngine
 from engine.reporter import AuditReport, get_ai_suggestions
 
@@ -33,14 +34,101 @@ RESULTS_DIR.mkdir(exist_ok=True, parents=True)
 print(f"📁 Using directories: UPLOAD_DIR={UPLOAD_DIR}, RESULTS_DIR={RESULTS_DIR}")
 
 engine = VantageEngine()
-# Removed parallel processing to reduce CPU load
 
-# Removed batch processing to reduce memory usage
+def process_single_frame(args):
+    """Process a single frame - designed for parallel execution"""
+    frame_idx, frame, prev_frame, fps, PROCESS_WIDTH, engine_instance = args
+    
+    # Create engine instance if needed (for multiprocessing)
+    if engine_instance is None:
+        from engine.saliency import VantageEngine
+        engine_instance = VantageEngine()
+    
+    h, w = frame.shape[:2]
+    if w > PROCESS_WIDTH:
+        scale = PROCESS_WIDTH / w
+        new_h = int(h * scale)
+        frame_small = cv2.resize(frame, (PROCESS_WIDTH, new_h), interpolation=cv2.INTER_LINEAR)
+    else:
+        frame_small = frame
+    
+    # Get saliency map (independent - can be parallelized)
+    saliency_map = engine_instance.get_saliency_map(frame_small)
+    
+    # Get motion map (needs prev_frame)
+    if prev_frame is not None:
+        if prev_frame.shape[1] != frame_small.shape[1] or prev_frame.shape[0] != frame_small.shape[0]:
+            prev_frame_small = cv2.resize(prev_frame, (frame_small.shape[1], frame_small.shape[0]), interpolation=cv2.INTER_LINEAR)
+        else:
+            prev_frame_small = prev_frame
+        motion_map = engine_instance.get_motion_map(prev_frame_small, frame_small)
+    else:
+        motion_map = np.zeros((frame_small.shape[0], frame_small.shape[1]), dtype=np.float32)
+    
+    # Calculate metrics
+    metrics = engine_instance.calculate_metrics(saliency_map, motion_map)
+    
+    # Process heatmap
+    heatmap_h, heatmap_w = saliency_map.shape[:2]
+    target_w = max(32, heatmap_w // 6)
+    target_h = max(32, heatmap_h // 6)
+    
+    saliency_blurred = cv2.GaussianBlur(saliency_map, (15, 15), 3.0)
+    motion_blurred = cv2.GaussianBlur(motion_map, (15, 15), 3.0)
+    
+    saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    
+    threshold = 0.3
+    saliency_small = np.maximum(0, saliency_small - threshold) / (1 - threshold)
+    saliency_small = np.clip(saliency_small, 0, 1)
+    
+    saliency_small = np.round(saliency_small * 10) / 10
+    motion_small = np.round(motion_small * 10) / 10
+    
+    saliency_list = saliency_small.tolist()
+    motion_list = motion_small.tolist()
+    
+    # Detect fixation points
+    fixation_points = []
+    for y in range(1, heatmap_h - 1):
+        for x in range(1, heatmap_w - 1):
+            val = saliency_map[y, x]
+            if val > 0.6:
+                is_max = True
+                for dy in [-1, 0, 1]:
+                    for dx in [-1, 0, 1]:
+                        if dx == 0 and dy == 0:
+                            continue
+                        if saliency_map[y + dy, x + dx] > val:
+                            is_max = False
+                            break
+                    if not is_max:
+                        break
+                if is_max:
+                    fixation_points.append({
+                        "x": int(x * w / heatmap_w),
+                        "y": int(y * h / heatmap_h),
+                        "intensity": float(val)
+                    })
+    
+    frame_time = frame_idx / fps if fps > 0 else frame_idx / 30
+    
+    return {
+        "frame": frame_idx,
+        "time": round(frame_time, 3),
+        "entropy": round(metrics["entropy"], 2),
+        "conflict": round(metrics["conflict"], 2),
+        "saliency_heatmap": saliency_list,
+        "motion_heatmap": motion_list,
+        "fixation_points": fixation_points[:10],
+        "original_size": [h, w],
+        "heatmap_size": [target_h, target_w]
+    }
 
 def process_video(job_id: str, video_path: str):
-    """Process ALL frames - complete analysis"""
+    """Process ALL frames in parallel - MUCH FASTER!"""
     start_time = time.time()
-    # No time limit - process all frames (user wants complete analysis)
     
     try:
         cap = cv2.VideoCapture(video_path)
@@ -48,129 +136,76 @@ def process_video(job_id: str, video_path: str):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps if fps > 0 else 0
         
-        # Process ALL frames - lightweight but complete
-        PROCESS_WIDTH = 320  # Moderate resolution for speed
-        # Process EVERY frame (no sampling)
+        PROCESS_WIDTH = 320
+        
+        print(f"📹 Loading ALL {frame_count} frames into memory...")
+        # Load ALL frames first
+        all_frames = []
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            all_frames.append((frame_idx, frame.copy()))
+            frame_idx += 1
+        cap.release()
+        
+        print(f"✅ Loaded {len(all_frames)} frames. Starting parallel processing...")
+        
+        # Prepare frame pairs for parallel processing
+        # Use ThreadPoolExecutor (OpenCV releases GIL, so threads work well)
+        max_workers = min(8, os.cpu_count() or 4)  # Use up to 8 workers
+        print(f"🚀 Using {max_workers} parallel workers")
         
         frames_data = []
         all_entropies = []
         all_conflicts = []
         
-        frame_idx = 0
-        prev_frame = None
+        # Process frames in batches for better memory management
+        batch_size = 100
+        processed = 0
         
-        print(f"Processing ALL {frame_count} frames at {fps} FPS...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all frame processing tasks
+            futures = []
+            prev_frame = None
+            
+            for frame_idx, frame in all_frames:
+                # Create task args
+                task_args = (frame_idx, frame, prev_frame, fps, PROCESS_WIDTH, engine)
+                future = executor.submit(process_single_frame, task_args)
+                futures.append((frame_idx, future))
+                prev_frame = frame.copy()  # Update for next iteration
+            
+            # Collect results as they complete (maintains order)
+            results_dict = {}
+            completed = 0
+            
+            for frame_idx, future in futures:
+                try:
+                    result = future.result()
+                    results_dict[frame_idx] = result
+                    completed += 1
+                    
+                    # Progress update
+                    if completed % 50 == 0 or completed == len(futures):
+                        elapsed = time.time() - start_time
+                        print(f"⚡ Processed {completed}/{len(futures)} frames ({completed/len(futures)*100:.1f}%) in {elapsed:.1f}s")
+                    
+                except Exception as e:
+                    print(f"❌ Error processing frame {frame_idx}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Sort results by frame index
+            frames_data = [results_dict[i] for i in range(len(results_dict))]
+            
+            # Extract metrics
+            for frame_data in frames_data:
+                all_entropies.append(frame_data["entropy"])
+                all_conflicts.append(frame_data["conflict"])
         
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Process every frame - no skipping
-            
-            # Aggressive downscaling for speed
-            h, w = frame.shape[:2]
-            if w > PROCESS_WIDTH:
-                scale = PROCESS_WIDTH / w
-                new_h = int(h * scale)
-                frame_small = cv2.resize(frame, (PROCESS_WIDTH, new_h), interpolation=cv2.INTER_LINEAR)
-            else:
-                frame_small = frame
-            
-            # Get saliency and motion maps (skip motion if no prev frame to save time)
-            saliency_map = engine.get_saliency_map(frame_small)
-            
-            if prev_frame is not None:
-                # Resize prev_frame if needed
-                if prev_frame.shape[1] != frame_small.shape[1] or prev_frame.shape[0] != frame_small.shape[0]:
-                    prev_frame_small = cv2.resize(prev_frame, (frame_small.shape[1], frame_small.shape[0]), interpolation=cv2.INTER_LINEAR)
-                else:
-                    prev_frame_small = prev_frame
-                motion_map = engine.get_motion_map(prev_frame_small, frame_small)
-            else:
-                # Skip motion calculation for first frame
-                motion_map = np.zeros((frame_small.shape[0], frame_small.shape[1]), dtype=np.float32)
-            
-            # Calculate metrics
-            metrics = engine.calculate_metrics(saliency_map, motion_map)
-            all_entropies.append(metrics["entropy"])
-            all_conflicts.append(metrics["conflict"])
-            
-            # Generalized, brighter heatmap - focus on main areas
-            heatmap_h, heatmap_w = saliency_map.shape[:2]
-            # Store at 1/6 resolution - more generalized, less granular
-            target_w = max(32, heatmap_w // 6)  # More generalized
-            target_h = max(32, heatmap_h // 6)  # More generalized
-            
-            # Heavy blur for generalization (focus on main areas, not details)
-            saliency_blurred = cv2.GaussianBlur(saliency_map, (15, 15), 3.0)  # Larger blur
-            motion_blurred = cv2.GaussianBlur(motion_map, (15, 15), 3.0)
-            
-            # Resize with linear interpolation
-            saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-            motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-            
-            # Apply threshold to focus on main areas only (brighter = more focused)
-            threshold = 0.3  # Only show top 30% of attention
-            saliency_small = np.maximum(0, saliency_small - threshold) / (1 - threshold)  # Normalize after threshold
-            saliency_small = np.clip(saliency_small, 0, 1)
-            
-            # Quantize to 1 decimal place for file size
-            saliency_small = np.round(saliency_small * 10) / 10
-            motion_small = np.round(motion_small * 10) / 10
-            
-            # Convert to list
-            saliency_list = saliency_small.tolist()
-            motion_list = motion_small.tolist()
-            
-            # Detect fixation points (local maxima in saliency)
-            fixation_points = []
-            for y in range(1, heatmap_h - 1):
-                for x in range(1, heatmap_w - 1):
-                    val = saliency_map[y, x]
-                    if val > 0.6:  # High attention threshold
-                        # Check if local maximum
-                        is_max = True
-                        for dy in [-1, 0, 1]:
-                            for dx in [-1, 0, 1]:
-                                if dx == 0 and dy == 0:
-                                    continue
-                                if saliency_map[y + dy, x + dx] > val:
-                                    is_max = False
-                                    break
-                            if not is_max:
-                                break
-                        if is_max:
-                            # Store in original video coordinates
-                            fixation_points.append({
-                                "x": int(x * w / heatmap_w),
-                                "y": int(y * h / heatmap_h),
-                                "intensity": float(val)
-                            })
-            
-            # Store frame data - ALL frames with exact timing
-            frame_time = frame_idx / fps if fps > 0 else frame_idx / 30
-            frames_data.append({
-                "frame": frame_idx,
-                "time": round(frame_time, 3),  # More precise timing (3 decimals)
-                "entropy": round(metrics["entropy"], 2),
-                "conflict": round(metrics["conflict"], 2),
-                "saliency_heatmap": saliency_list,
-                "motion_heatmap": motion_list,
-                "fixation_points": fixation_points[:10],  # Top 10 fixation points per frame
-                "original_size": [h, w],
-                "heatmap_size": [target_h, target_w]
-            })
-            
-            prev_frame = frame.copy()
-            frame_idx += 1
-            
-            # Progress update every 100 frames
-            if frame_idx % 100 == 0:
-                elapsed = time.time() - start_time
-                print(f"Processed {frame_idx}/{frame_count} frames ({frame_idx/frame_count*100:.1f}%) in {elapsed:.1f}s")
-        
-        cap.release()
+        print(f"✅ Parallel processing complete! Processed {len(frames_data)} frames in {time.time() - start_time:.1f}s")
         
         # Calculate statistics
         if all_entropies:
