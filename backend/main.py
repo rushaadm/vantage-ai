@@ -135,34 +135,68 @@ def process_video(job_id: str, video_path: str):
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
             
-            # Optimized heatmap - reduce file size while maintaining quality
+            # Generalized, brighter heatmap - focus on main areas
             heatmap_h, heatmap_w = saliency_map.shape[:2]
-            # Store at 1/4 resolution to keep files manageable (was 1/3)
-            target_w = max(40, heatmap_w // 4)  # Further reduced for smaller files
-            target_h = max(40, heatmap_h // 4)  # Further reduced
-            # Apply Gaussian blur for smoothness before downsampling
-            saliency_blurred = cv2.GaussianBlur(saliency_map, (7, 7), 1.5)
-            motion_blurred = cv2.GaussianBlur(motion_map, (7, 7), 1.5)
-            # Use linear interpolation (faster, smaller files)
+            # Store at 1/6 resolution - more generalized, less granular
+            target_w = max(32, heatmap_w // 6)  # More generalized
+            target_h = max(32, heatmap_h // 6)  # More generalized
+            
+            # Heavy blur for generalization (focus on main areas, not details)
+            saliency_blurred = cv2.GaussianBlur(saliency_map, (15, 15), 3.0)  # Larger blur
+            motion_blurred = cv2.GaussianBlur(motion_map, (15, 15), 3.0)
+            
+            # Resize with linear interpolation
             saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
             motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
             
-            # Quantize to reduce precision and file size (round to 1 decimal place - more aggressive)
+            # Apply threshold to focus on main areas only (brighter = more focused)
+            threshold = 0.3  # Only show top 30% of attention
+            saliency_small = np.maximum(0, saliency_small - threshold) / (1 - threshold)  # Normalize after threshold
+            saliency_small = np.clip(saliency_small, 0, 1)
+            
+            # Quantize to 1 decimal place for file size
             saliency_small = np.round(saliency_small * 10) / 10
             motion_small = np.round(motion_small * 10) / 10
             
-            # Convert to list with minimal precision
+            # Convert to list
             saliency_list = saliency_small.tolist()
             motion_list = motion_small.tolist()
             
-            # Store frame data (sampled frames only) - use pre-converted lists
+            # Detect fixation points (local maxima in saliency)
+            fixation_points = []
+            for y in range(1, heatmap_h - 1):
+                for x in range(1, heatmap_w - 1):
+                    val = saliency_map[y, x]
+                    if val > 0.6:  # High attention threshold
+                        # Check if local maximum
+                        is_max = True
+                        for dy in [-1, 0, 1]:
+                            for dx in [-1, 0, 1]:
+                                if dx == 0 and dy == 0:
+                                    continue
+                                if saliency_map[y + dy, x + dx] > val:
+                                    is_max = False
+                                    break
+                            if not is_max:
+                                break
+                        if is_max:
+                            # Store in original video coordinates
+                            fixation_points.append({
+                                "x": int(x * w / heatmap_w),
+                                "y": int(y * h / heatmap_h),
+                                "intensity": float(val)
+                            })
+            
+            # Store frame data - ALL frames with exact timing
+            frame_time = frame_idx / fps if fps > 0 else frame_idx / 30
             frames_data.append({
                 "frame": frame_idx,
-                "time": round(frame_idx / fps if fps > 0 else frame_idx / 30, 2),
+                "time": round(frame_time, 3),  # More precise timing (3 decimals)
                 "entropy": round(metrics["entropy"], 2),
                 "conflict": round(metrics["conflict"], 2),
                 "saliency_heatmap": saliency_list,
                 "motion_heatmap": motion_list,
+                "fixation_points": fixation_points[:10],  # Top 10 fixation points per frame
                 "original_size": [h, w],
                 "heatmap_size": [target_h, target_w]
             })

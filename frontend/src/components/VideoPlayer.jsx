@@ -248,36 +248,34 @@ function VideoPlayer() {
       const currentTime = video.currentTime
       const fps = results.fps || 30
       
-      // Dynamic frame interpolation for smooth, changing heatmaps
-      let frame1 = null
-      let frame2 = null
-      let t = 0
+      // Find exact frame matching current video time (all frames processed)
+      let frame = null
+      let closestFrame = null
+      let minTimeDiff = Infinity
       
-      // Find frames before and after current time for interpolation
+      // Find frame with time closest to currentTime
       for (let i = 0; i < results.frames.length; i++) {
-        if (results.frames[i].time >= currentTime) {
-          frame2 = results.frames[i]
-          if (i > 0) {
-            frame1 = results.frames[i - 1]
-            const timeDiff = frame2.time - frame1.time
-            if (timeDiff > 0) {
-              t = (currentTime - frame1.time) / timeDiff
-              t = Math.max(0, Math.min(1, t))
-            }
-          } else {
-            frame1 = frame2
-          }
+        const timeDiff = Math.abs(results.frames[i].time - currentTime)
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff
+          closestFrame = results.frames[i]
+        }
+        // Exact match (within 0.05 seconds)
+        if (timeDiff < 0.05) {
+          frame = results.frames[i]
           break
         }
       }
       
-      // Use last frame if past all frames
-      if (!frame1 && results.frames.length > 0) {
-        frame1 = results.frames[results.frames.length - 1]
-        frame2 = frame1
+      // Use closest frame if no exact match
+      if (!frame && closestFrame) {
+        frame = closestFrame
       }
       
-      const frame = frame1
+      // Fallback to last frame
+      if (!frame && results.frames.length > 0) {
+        frame = results.frames[results.frames.length - 1]
+      }
 
       if (!frame?.saliency_heatmap) {
         console.log('⚠️ No heatmap data for frame at time', currentTime)
@@ -337,19 +335,21 @@ function VideoPlayer() {
                      val12 * (1 - fx) * fy +
                      val22 * fx * fy
           
-          if (val > 0.2) {
-            // Dynamic gradient: bright green for high attention, darker for lower
-            const intensity = Math.min(1, (val - 0.2) / 0.8)
+          // Brighter, more generalized - only show main focus areas
+          if (val > 0.1) {  // Lower threshold for brighter display
+            // Bright green gradient - more intense
+            const intensity = Math.min(1, val * 1.5)  // Amplify brightness
             const idx = (y * canvas.width + x) * 4
             
-            // Green gradient: bright lime to forest green
-            const green = Math.floor(50 + 205 * intensity)  // 50-255 range
-            const alpha = Math.floor(120 + 135 * intensity)  // 120-255 opacity
+            // Bright lime green to bright yellow-green
+            const green = Math.floor(100 + 155 * intensity)  // 100-255 (brighter)
+            const red = Math.floor(50 * intensity)  // Slight red tint for warmth
+            const alpha = Math.floor(150 + 105 * intensity)  // 150-255 opacity (more visible)
             
-            imgData.data[idx] = 0           // R
-            imgData.data[idx + 1] = green  // G - dynamic green
-            imgData.data[idx + 2] = Math.floor(50 * (1 - intensity))  // B - slight blue tint for lower values
-            imgData.data[idx + 3] = alpha   // A - dynamic opacity
+            imgData.data[idx] = red           // R - slight red
+            imgData.data[idx + 1] = green    // G - bright green
+            imgData.data[idx + 2] = 0        // B
+            imgData.data[idx + 3] = alpha     // A - brighter
           }
         }
       }
@@ -373,6 +373,41 @@ function VideoPlayer() {
       
       // Draw sharp version on top
       ctx.putImageData(imgData, 0, 0)
+      
+      // Draw fixation points (bright stars)
+      if (frame.fixation_points && frame.fixation_points.length > 0) {
+        ctx.save()
+        frame.fixation_points.forEach((point, idx) => {
+          const x = (point.x / frame.original_size[0]) * canvas.width
+          const y = (point.y / frame.original_size[1]) * canvas.height
+          const size = 8 + (point.intensity * 8)  // 8-16px based on intensity
+          
+          // Bright orange/red star
+          ctx.fillStyle = `rgba(255, ${200 - point.intensity * 100}, 0, 0.9)`
+          ctx.strokeStyle = '#FFFFFF'
+          ctx.lineWidth = 2
+          
+          // Draw star shape
+          ctx.beginPath()
+          for (let i = 0; i < 5; i++) {
+            const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2
+            const px = x + Math.cos(angle) * size
+            const py = y + Math.sin(angle) * size
+            if (i === 0) ctx.moveTo(px, py)
+            else ctx.lineTo(px, py)
+          }
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
+          
+          // Time annotation
+          ctx.fillStyle = '#FFFFFF'
+          ctx.font = 'bold 10px Arial'
+          ctx.textAlign = 'center'
+          ctx.fillText(frame.time.toFixed(2) + 's', x, y + size + 12)
+        })
+        ctx.restore()
+      }
     }
 
     video.addEventListener('timeupdate', updateCanvas)
