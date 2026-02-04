@@ -311,7 +311,7 @@ function VideoPlayer() {
       const scaleX = canvas.width / heatmapW
       const scaleY = canvas.height / heatmapH
 
-      // Clean heatmap rendering with annotations
+      // Beautiful heatmap like reference: Blue → Green → Yellow → Orange → Red
       const imgData = ctx.createImageData(canvas.width, canvas.height)
       
       // Calculate attention percentage for annotation
@@ -335,17 +335,53 @@ function VideoPlayer() {
                      (saliencyMap[y2]?.[x1] || 0) * (1 - fx) * fy +
                      (saliencyMap[y2]?.[x2] || 0) * fx * fy
           
-          if (val > 0.15) {
-            const intensity = Math.min(1, val * 1.2)
+          // Smooth gradient: Blue → Teal → Green → Yellow → Orange → Red
+          if (val > 0.05) {  // Lower threshold to show more
+            const intensity = Math.min(1, val)
             const idx = (y * canvas.width + x) * 4
             
-            // Clean green gradient
-            const green = Math.floor(80 + 175 * intensity)
-            const alpha = Math.floor(140 + 115 * intensity)
+            let r, g, b, alpha
             
-            imgData.data[idx] = 0
-            imgData.data[idx + 1] = green
-            imgData.data[idx + 2] = Math.floor(30 * (1 - intensity))
+            if (intensity < 0.2) {
+              // Blue to Teal (low intensity)
+              const t = intensity / 0.2
+              r = Math.floor(30 + 20 * t)
+              g = Math.floor(100 + 80 * t)
+              b = Math.floor(180 - 50 * t)
+              alpha = Math.floor(80 + 40 * t)
+            } else if (intensity < 0.4) {
+              // Teal to Green
+              const t = (intensity - 0.2) / 0.2
+              r = Math.floor(50 - 20 * t)
+              g = Math.floor(180 + 50 * t)
+              b = Math.floor(130 - 100 * t)
+              alpha = Math.floor(120 + 50 * t)
+            } else if (intensity < 0.6) {
+              // Green to Yellow
+              const t = (intensity - 0.4) / 0.2
+              r = Math.floor(30 + 180 * t)
+              g = Math.floor(230 - 30 * t)
+              b = Math.floor(30 - 30 * t)
+              alpha = Math.floor(170 + 50 * t)
+            } else if (intensity < 0.8) {
+              // Yellow to Orange
+              const t = (intensity - 0.6) / 0.2
+              r = Math.floor(210 + 45 * t)
+              g = Math.floor(200 - 50 * t)
+              b = Math.floor(0)
+              alpha = Math.floor(220 + 35 * t)
+            } else {
+              // Orange to Red (high intensity)
+              const t = (intensity - 0.8) / 0.2
+              r = Math.floor(255)
+              g = Math.floor(150 - 150 * t)
+              b = Math.floor(0)
+              alpha = Math.floor(255)
+            }
+            
+            imgData.data[idx] = r
+            imgData.data[idx + 1] = g
+            imgData.data[idx + 2] = b
             imgData.data[idx + 3] = alpha
             
             totalAttention += val
@@ -353,6 +389,19 @@ function VideoPlayer() {
           }
         }
       }
+      
+      // Apply smooth blur for that ethereal, blended look
+      ctx.putImageData(imgData, 0, 0)
+      ctx.save()
+      ctx.globalAlpha = 0.6
+      ctx.filter = 'blur(3px)'
+      ctx.drawImage(canvas, 0, 0)
+      ctx.restore()
+      
+      // Draw sharp version on top with reduced opacity for smooth blending
+      ctx.globalAlpha = 0.7
+      ctx.putImageData(imgData, 0, 0)
+      ctx.globalAlpha = 1.0
       
       ctx.putImageData(imgData, 0, 0)
       

@@ -38,9 +38,8 @@ def process_video(job_id: str, video_path: str):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps if fps > 0 else 0
         
-        # Smart sampling: 2 FPS for analysis (smooth but fast)
-        sample_rate = max(1, int(fps / 2))  # 2 samples per second
-        print(f"📹 Processing {frame_count} frames at {fps} FPS (sampling every {sample_rate} frames)")
+        # Process EVERY frame for smooth heatmap
+        print(f"📹 Processing ALL {frame_count} frames at {fps} FPS")
         
         frames_data = []
         all_entropies = []
@@ -54,10 +53,7 @@ def process_video(job_id: str, video_path: str):
             if not ret:
                 break
             
-            # Sample frames for speed
-            if frame_idx % sample_rate != 0:
-                frame_idx += 1
-                continue
+            # Process every frame - no sampling
             
             h, w = frame.shape[:2]
             
@@ -85,21 +81,19 @@ def process_video(job_id: str, video_path: str):
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
             
-            # Generate clean heatmap (1/4 resolution for storage)
+            # Generate smooth heatmap (1/3 resolution for better quality)
             heatmap_h, heatmap_w = saliency_map.shape[:2]
-            target_w = max(40, heatmap_w // 4)
-            target_h = max(40, heatmap_h // 4)
+            target_w = max(50, heatmap_w // 3)  # Higher resolution for smoother look
+            target_h = max(50, heatmap_h // 3)
             
-            # Smooth blur
-            saliency_blurred = cv2.GaussianBlur(saliency_map, (9, 9), 2.0)
-            motion_blurred = cv2.GaussianBlur(motion_map, (9, 9), 2.0)
+            # Heavy blur for smooth, continuous gradient
+            saliency_blurred = cv2.GaussianBlur(saliency_map, (15, 15), 3.0)
+            motion_blurred = cv2.GaussianBlur(motion_map, (15, 15), 3.0)
             
-            saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-            motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+            saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)  # Cubic for smoother
+            motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
             
-            # Threshold for cleaner focus areas
-            threshold = 0.25
-            saliency_small = np.maximum(0, saliency_small - threshold) / (1 - threshold)
+            # No threshold - keep full range for smooth gradient
             saliency_small = np.clip(saliency_small, 0, 1)
             
             # Quantize
