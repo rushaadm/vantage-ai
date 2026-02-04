@@ -127,7 +127,7 @@ def process_single_frame(args):
     }
 
 def process_video(job_id: str, video_path: str):
-    """Process ALL frames in parallel - MUCH FASTER!"""
+    """Process ALL frames in parallel batches - MEMORY EFFICIENT!"""
     start_time = time.time()
     
     try:
@@ -138,74 +138,85 @@ def process_video(job_id: str, video_path: str):
         
         PROCESS_WIDTH = 320
         
-        print(f"📹 Loading ALL {frame_count} frames into memory...")
-        # Load ALL frames first
-        all_frames = []
-        frame_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            all_frames.append((frame_idx, frame.copy()))
-            frame_idx += 1
-        cap.release()
-        
-        print(f"✅ Loaded {len(all_frames)} frames. Starting parallel processing...")
-        
-        # Prepare frame pairs for parallel processing
-        # Use ThreadPoolExecutor (OpenCV releases GIL, so threads work well)
-        max_workers = min(8, os.cpu_count() or 4)  # Use up to 8 workers
-        print(f"🚀 Using {max_workers} parallel workers")
+        # Memory-efficient batch processing
+        # Process in small batches to avoid loading everything into memory
+        batch_size = 50  # Process 50 frames at a time
+        max_workers = min(4, os.cpu_count() or 2)  # Reduced workers to save memory
+        print(f"🚀 Processing {frame_count} frames in batches of {batch_size} using {max_workers} workers")
         
         frames_data = []
         all_entropies = []
         all_conflicts = []
         
-        # Process frames in batches for better memory management
-        batch_size = 100
-        processed = 0
+        frame_idx = 0
+        prev_frame = None
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all frame processing tasks
-            futures = []
-            prev_frame = None
+        # Process in batches
+        while True:
+            # Load one batch into memory
+            batch_frames = []
+            batch_indices = []
             
-            for frame_idx, frame in all_frames:
-                # Create task args
-                task_args = (frame_idx, frame, prev_frame, fps, PROCESS_WIDTH, engine)
-                future = executor.submit(process_single_frame, task_args)
-                futures.append((frame_idx, future))
-                prev_frame = frame.copy()  # Update for next iteration
+            for _ in range(batch_size):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                batch_frames.append((frame_idx, frame.copy()))
+                batch_indices.append(frame_idx)
+                frame_idx += 1
             
-            # Collect results as they complete (maintains order)
-            results_dict = {}
-            completed = 0
+            if not batch_frames:
+                break
             
-            for frame_idx, future in futures:
-                try:
-                    result = future.result()
-                    results_dict[frame_idx] = result
-                    completed += 1
+            print(f"📦 Processing batch: frames {batch_indices[0]}-{batch_indices[-1]} ({len(batch_frames)} frames)")
+            
+            # Process batch in parallel
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                batch_prev_frame = prev_frame
+                
+                for idx, (f_idx, frame) in enumerate(batch_frames):
+                    # Use previous frame from batch or global prev_frame
+                    if idx > 0:
+                        batch_prev_frame = batch_frames[idx - 1][1]
                     
-                    # Progress update
-                    if completed % 50 == 0 or completed == len(futures):
-                        elapsed = time.time() - start_time
-                        print(f"⚡ Processed {completed}/{len(futures)} frames ({completed/len(futures)*100:.1f}%) in {elapsed:.1f}s")
-                    
-                except Exception as e:
-                    print(f"❌ Error processing frame {frame_idx}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    task_args = (f_idx, frame, batch_prev_frame, fps, PROCESS_WIDTH, engine)
+                    future = executor.submit(process_single_frame, task_args)
+                    futures.append((f_idx, future))
+                
+                # Collect batch results
+                batch_results = {}
+                for f_idx, future in futures:
+                    try:
+                        result = future.result()
+                        batch_results[f_idx] = result
+                    except Exception as e:
+                        print(f"❌ Error processing frame {f_idx}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                # Sort and add to main results
+                for f_idx in sorted(batch_results.keys()):
+                    result = batch_results[f_idx]
+                    frames_data.append(result)
+                    all_entropies.append(result["entropy"])
+                    all_conflicts.append(result["conflict"])
+                
+                # Update prev_frame for next batch
+                if batch_frames:
+                    prev_frame = batch_frames[-1][1].copy()
             
-            # Sort results by frame index
-            frames_data = [results_dict[i] for i in range(len(results_dict))]
+            # Progress update
+            elapsed = time.time() - start_time
+            print(f"⚡ Processed {len(frames_data)}/{frame_count} frames ({len(frames_data)/frame_count*100:.1f}%) in {elapsed:.1f}s")
             
-            # Extract metrics
-            for frame_data in frames_data:
-                all_entropies.append(frame_data["entropy"])
-                all_conflicts.append(frame_data["conflict"])
+            # Clear batch from memory
+            del batch_frames
+            import gc
+            gc.collect()
         
-        print(f"✅ Parallel processing complete! Processed {len(frames_data)} frames in {time.time() - start_time:.1f}s")
+        cap.release()
+        print(f"✅ Parallel batch processing complete! Processed {len(frames_data)} frames in {time.time() - start_time:.1f}s")
         
         # Calculate statistics
         if all_entropies:
