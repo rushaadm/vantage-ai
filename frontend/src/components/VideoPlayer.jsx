@@ -134,7 +134,7 @@ function VideoPlayer() {
   const [loading, setLoading] = useState(true)
   const [heatmapWorker, setHeatmapWorker] = useState(null)
 
-  // Stream results using Server-Sent Events - NO POLLING!
+  // Stream results progressively - updates as frames are processed
   useEffect(() => {
     if (!jobId) {
       setLoading(false)
@@ -142,18 +142,20 @@ function VideoPlayer() {
     }
 
     const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
-    console.log('🔍 Starting SSE stream for job:', jobId)
+    console.log('🔍 Starting progressive SSE stream for job:', jobId)
     
-    // Use Server-Sent Events instead of polling
     const eventSource = new EventSource(`${apiUrl}/results-stream/${jobId}`)
+    let lastFrameCount = 0
     
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        console.log('📦 SSE data received:', {
+        const currentFrameCount = data.frames?.length || 0
+        
+        console.log('📦 Progressive update:', {
           status: data.status,
-          hasFrames: !!data.frames,
-          framesCount: data.frames?.length || 0
+          framesCount: currentFrameCount,
+          newFrames: currentFrameCount - lastFrameCount
         })
         
         if (data.status === 'error') {
@@ -164,18 +166,24 @@ function VideoPlayer() {
           return
         }
         
-        if (data.status === 'processing') {
-          console.log('⏳ Processing...', data.message)
-          // Keep loading state - SSE will push updates automatically
-          return
-        }
-        
-        // Results ready!
+        // Update results progressively - show heatmap as frames come in
         if (data.frames && data.frames.length > 0) {
-          console.log('✅ Results loaded via SSE:', data.frames.length, 'frames')
           setResults(data)
-          setLoading(false)
-          eventSource.close() // Close connection once we have results
+          lastFrameCount = currentFrameCount
+          
+          // Show loading until complete
+          if (data.status === 'complete') {
+            setLoading(false)
+            eventSource.close()
+            console.log('✅ Processing complete:', currentFrameCount, 'frames')
+          } else {
+            // Still processing - keep loading but show partial results
+            setLoading(true)
+            console.log('⏳ Processing...', currentFrameCount, 'frames so far')
+          }
+        } else if (data.status === 'processing') {
+          // No frames yet, keep loading
+          setLoading(true)
         }
       } catch (error) {
         console.error('❌ SSE parse error:', error)
@@ -187,20 +195,24 @@ function VideoPlayer() {
     eventSource.onerror = (error) => {
       console.error('❌ SSE connection error:', error)
       eventSource.close()
-      // Fallback to regular polling if SSE fails
-      console.log('🔄 Falling back to polling...')
+      // Fallback to polling
       const fallbackPoll = async () => {
         try {
           const response = await axios.get(`${apiUrl}/results/${jobId}`)
-          if (response.data.status === 'complete' && response.data.frames?.length > 0) {
-            setResults(response.data)
-            setLoading(false)
+          const data = response.data
+          if (data.frames && data.frames.length > 0) {
+            setResults(data)
+            if (data.status === 'complete') {
+              setLoading(false)
+            } else {
+              setTimeout(fallbackPoll, 2000) // Poll every 2 seconds
+            }
           } else {
-            setTimeout(fallbackPoll, 3000) // Poll every 3 seconds as fallback
+            setTimeout(fallbackPoll, 2000)
           }
         } catch (err) {
           console.error('Fallback poll error:', err)
-          setTimeout(fallbackPoll, 3000)
+          setTimeout(fallbackPoll, 2000)
         }
       }
       fallbackPoll()
