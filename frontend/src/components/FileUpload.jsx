@@ -76,6 +76,7 @@ function FileUpload() {
     try {
       const formData = new FormData()
       formData.append('file', file)
+      formData.append('sample_rate', useStore.getState().frameSamplingRate || 2)
 
       const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
       const response = await axios.post(`${apiUrl}/upload`, formData, {

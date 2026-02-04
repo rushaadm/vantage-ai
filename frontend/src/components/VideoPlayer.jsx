@@ -200,11 +200,10 @@ const LoadingText = styled.p`
 function VideoPlayer() {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
-  const { jobId, videoUrl, results, setResults } = useStore()
+  const { jobId, videoUrl, results, setResults, frameSamplingRate, setFrameSamplingRate } = useStore()
   const [loading, setLoading] = useState(true)
   const [heatmapWorker, setHeatmapWorker] = useState(null)
   const [progress, setProgress] = useState({ percent: 0, processed: 0, total: 0 })
-  const [frameSamplingRate, setFrameSamplingRate] = useState(2) // Default: every 2nd frame (50%)
 
   // Stream results progressively - updates as frames are processed
   useEffect(() => {
