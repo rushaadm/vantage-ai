@@ -158,13 +158,14 @@ function FileUpload() {
       // Poll for results
       pollResults(jobId)
     } catch (error) {
-      console.error('Upload error:', error)
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        response: error.response?.data,
-        status: error.response?.status,
-      })
+      console.error('=== UPLOAD ERROR ===')
+      console.error('Error object:', error)
+      console.error('Error message:', error.message)
+      console.error('Error code:', error.code)
+      console.error('Error response:', error.response)
+      console.error('Error response data:', error.response?.data)
+      console.error('Error response status:', error.response?.status)
+      console.error('Error stack:', error.stack)
       
       let errorMessage = 'Upload failed. Please try again.'
       
@@ -172,6 +173,8 @@ function FileUpload() {
         errorMessage = 'Upload timed out. The file may be too large or the server is slow. Please try again.'
       } else if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || error.message?.includes('ERR_CONNECTION_REFUSED')) {
         errorMessage = 'Cannot connect to server. Please check your internet connection or try again later.'
+      } else if (error.message?.includes('Network Error') || error.message?.includes('ERR_FAILED')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.'
       } else if (error.response?.data?.error) {
         errorMessage = error.response.data.error
       } else if (error.response?.status === 413) {
