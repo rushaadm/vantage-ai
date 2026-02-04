@@ -260,6 +260,11 @@ def _save_batch(job_id, batch_results, all_entropies, all_conflicts):
     data["frames"].extend(batch_results)
     data["processed_frames"] = len(data["frames"])
     data["status"] = "processing"
+    # Calculate progress percentage
+    if data.get("total_frames_to_process", 0) > 0:
+        data["progress_percent"] = round((data["processed_frames"] / data["total_frames_to_process"]) * 100, 1)
+    else:
+        data["progress_percent"] = 0
     
     # Atomic write
     temp_path = RESULTS_DIR / f"{job_id}.json.tmp"
@@ -267,7 +272,7 @@ def _save_batch(job_id, batch_results, all_entropies, all_conflicts):
         json.dump(data, f, separators=(',', ':'))
     temp_path.replace(result_path)
     
-    print(f"💾 Saved batch: {len(batch_results)} frames, total: {data['processed_frames']}")
+    print(f"💾 Saved batch: {len(batch_results)} frames, total: {data['processed_frames']} ({data['progress_percent']}%)")
     
     # DELETE batch from memory
     del batch_results
@@ -438,10 +443,12 @@ async def stream_results(job_id: str):
                         yield f"data: {json.dumps(data)}\n\n"
                         return
                     else:
-                        # Just send progress, no partial data
+                        # Send progress update with percentage
                         processed_count = data.get('processed_frames', 0)
-                        progress_msg = f'Processing... ({processed_count} frames)'
-                        yield f"data: {json.dumps({'status': 'processing', 'processed_frames': processed_count, 'message': progress_msg})}\n\n"
+                        total_to_process = data.get('total_frames_to_process', data.get('frame_count', 0))
+                        progress_percent = data.get('progress_percent', 0)
+                        progress_msg = f'Processing... ({processed_count}/{total_to_process} frames, {progress_percent}%)'
+                        yield f"data: {json.dumps({'status': 'processing', 'processed_frames': processed_count, 'total_frames_to_process': total_to_process, 'progress_percent': progress_percent, 'message': progress_msg})}\n\n"
                 except:
                     yield f"data: {json.dumps({'status': 'error', 'error': 'Results file corrupted'})}\n\n"
                     return

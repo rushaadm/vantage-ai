@@ -206,24 +206,26 @@ function VideoPlayer() {
           return
         }
         
-        // Update results progressively - show heatmap as frames come in
-        if (data.frames && data.frames.length > 0) {
+        // Update progress bar
+        if (data.status === 'processing') {
+          setProgress({
+            percent: data.progress_percent || 0,
+            processed: data.processed_frames || 0,
+            total: data.total_frames_to_process || data.frame_count || 0
+          })
+        }
+        
+        // ONLY show results when COMPLETE - no partial display
+        if (data.status === 'complete' && data.frames && data.frames.length > 0) {
+          console.log('✅ Processing complete:', currentFrameCount, 'frames')
           setResults(data)
-          lastFrameCount = currentFrameCount
-          
-          // Show loading until complete
-          if (data.status === 'complete') {
-            setLoading(false)
-            eventSource.close()
-            console.log('✅ Processing complete:', currentFrameCount, 'frames')
-          } else {
-            // Still processing - keep loading but show partial results
-            setLoading(true)
-            console.log('⏳ Processing...', currentFrameCount, 'frames so far')
-          }
-        } else if (data.status === 'processing') {
-          // No frames yet, keep loading
+          setLoading(false)
+          setProgress({ percent: 100, processed: currentFrameCount, total: currentFrameCount })
+          eventSource.close()
+        } else {
+          // Still processing - keep loading, show progress
           setLoading(true)
+          console.log('⏳ Processing...', currentFrameCount || 0, 'frames so far')
         }
       } catch (error) {
         console.error('❌ SSE parse error:', error)
