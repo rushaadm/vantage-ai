@@ -94,12 +94,13 @@ function FileUpload() {
         throw new Error('No job ID returned from server')
       }
 
-      setJobId(jobId)
-      setStatus('Video uploaded! Processing...')
-      
-      // Create object URL for video preview
+      // Create object URL for video preview FIRST (before setting jobId)
       const videoUrl = URL.createObjectURL(file)
       setVideoUrl(videoUrl)
+      
+      // Then set jobId (this triggers VideoPlayer to show)
+      setJobId(jobId)
+      setStatus('Video uploaded! Processing...')
 
       // Poll for results
       pollResults(jobId)

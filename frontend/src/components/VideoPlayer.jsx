@@ -141,6 +141,36 @@ const Tooltip = styled.span`
   }
 `
 
+const ProgressOverlay = styled.div`
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 1rem;
+  border-radius: 8px;
+  z-index: 20;
+`
+
+const SliderContainer = styled.div`
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(0, 242, 255, 0.1);
+  border-radius: 8px;
+`
+
+const Slider = styled.input`
+  width: 100%;
+  margin: 0.5rem 0;
+`
+
+const SliderLabel = styled.label`
+  color: ${props => props.theme.colors.text};
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+`
+
 const spin = keyframes`
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -173,6 +203,8 @@ function VideoPlayer() {
   const { jobId, videoUrl, results, setResults } = useStore()
   const [loading, setLoading] = useState(true)
   const [heatmapWorker, setHeatmapWorker] = useState(null)
+  const [progress, setProgress] = useState({ percent: 0, processed: 0, total: 0 })
+  const [frameSamplingRate, setFrameSamplingRate] = useState(2) // Default: every 2nd frame (50%)
 
   // Stream results progressively - updates as frames are processed
   useEffect(() => {
@@ -554,7 +586,7 @@ function VideoPlayer() {
     }
   }
 
-  // SIMPLE RENDERING - NO COMPLEX LOGIC
+  // Show video immediately when uploaded (before processing starts)
   if (!videoUrl) {
     return null
   }
