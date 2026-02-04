@@ -23,10 +23,14 @@ app.add_middleware(
 )
 
 # Ensure directories exist
-UPLOAD_DIR = Path("uploads")
-RESULTS_DIR = Path("results")
-UPLOAD_DIR.mkdir(exist_ok=True)
-RESULTS_DIR.mkdir(exist_ok=True)
+# On Render, persistent disk is mounted at /opt/render/project/src
+# Use absolute path to ensure files are saved to persistent disk
+BASE_DIR = Path("/opt/render/project/src") if Path("/opt/render/project/src").exists() else Path(".")
+UPLOAD_DIR = BASE_DIR / "uploads"
+RESULTS_DIR = BASE_DIR / "results"
+UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+print(f"📁 Using directories: UPLOAD_DIR={UPLOAD_DIR}, RESULTS_DIR={RESULTS_DIR}")
 
 engine = VantageEngine()
 # Removed parallel processing to reduce CPU load
