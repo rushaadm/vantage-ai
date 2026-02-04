@@ -36,7 +36,7 @@ print(f"📁 Using directories: UPLOAD_DIR={UPLOAD_DIR}, RESULTS_DIR={RESULTS_DI
 engine = VantageEngine()
 
 def process_single_frame(args):
-    """Process a single frame - designed for parallel execution"""
+    """Process a single frame - MEMORY OPTIMIZED"""
     frame_idx, frame, prev_frame, fps, PROCESS_WIDTH, engine_instance = args
     
     # Create engine instance if needed (for multiprocessing)
@@ -52,7 +52,7 @@ def process_single_frame(args):
     else:
         frame_small = frame
     
-    # Get saliency map (independent - can be parallelized)
+    # Get saliency map
     saliency_map = engine_instance.get_saliency_map(frame_small)
     
     # Get motion map (needs prev_frame)
@@ -62,22 +62,27 @@ def process_single_frame(args):
         else:
             prev_frame_small = prev_frame
         motion_map = engine_instance.get_motion_map(prev_frame_small, frame_small)
+        # Free memory immediately
+        del prev_frame_small
     else:
         motion_map = np.zeros((frame_small.shape[0], frame_small.shape[1]), dtype=np.float32)
     
     # Calculate metrics
     metrics = engine_instance.calculate_metrics(saliency_map, motion_map)
     
-    # Process heatmap
+    # Process heatmap - reduce resolution even more to save memory
     heatmap_h, heatmap_w = saliency_map.shape[:2]
-    target_w = max(32, heatmap_w // 6)
-    target_h = max(32, heatmap_h // 6)
+    target_w = max(24, heatmap_w // 8)  # Even smaller: 1/8 resolution
+    target_h = max(24, heatmap_h // 8)
     
     saliency_blurred = cv2.GaussianBlur(saliency_map, (15, 15), 3.0)
     motion_blurred = cv2.GaussianBlur(motion_map, (15, 15), 3.0)
     
     saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
     motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    
+    # Free intermediate arrays
+    del saliency_blurred, motion_blurred
     
     threshold = 0.3
     saliency_small = np.maximum(0, saliency_small - threshold) / (1 - threshold)
@@ -89,7 +94,10 @@ def process_single_frame(args):
     saliency_list = saliency_small.tolist()
     motion_list = motion_small.tolist()
     
-    # Detect fixation points
+    # Free numpy arrays before creating lists
+    del saliency_small, motion_small
+    
+    # Detect fixation points - limit to top 5 to save memory
     fixation_points = []
     for y in range(1, heatmap_h - 1):
         for x in range(1, heatmap_w - 1):
@@ -111,6 +119,13 @@ def process_single_frame(args):
                         "y": int(y * h / heatmap_h),
                         "intensity": float(val)
                     })
+                    if len(fixation_points) >= 5:  # Limit to 5 points
+                        break
+        if len(fixation_points) >= 5:
+            break
+    
+    # Free saliency_map
+    del saliency_map, motion_map
     
     frame_time = frame_idx / fps if fps > 0 else frame_idx / 30
     
@@ -121,7 +136,7 @@ def process_single_frame(args):
         "conflict": round(metrics["conflict"], 2),
         "saliency_heatmap": saliency_list,
         "motion_heatmap": motion_list,
-        "fixation_points": fixation_points[:10],
+        "fixation_points": fixation_points[:5],  # Max 5 points
         "original_size": [h, w],
         "heatmap_size": [target_h, target_w]
     }
@@ -138,10 +153,10 @@ def process_video(job_id: str, video_path: str):
         
         PROCESS_WIDTH = 320
         
-        # Memory-efficient batch processing
-        # Process in small batches to avoid loading everything into memory
-        batch_size = 50  # Process 50 frames at a time
-        max_workers = min(4, os.cpu_count() or 2)  # Reduced workers to save memory
+        # Ultra memory-efficient batch processing
+        # Process in very small batches to stay under 512MB limit
+        batch_size = 20  # Process only 20 frames at a time (much smaller)
+        max_workers = min(2, os.cpu_count() or 1)  # Only 2 workers max to save memory
         print(f"🚀 Processing {frame_count} frames in batches of {batch_size} using {max_workers} workers")
         
         frames_data = []
@@ -151,69 +166,42 @@ def process_video(job_id: str, video_path: str):
         frame_idx = 0
         prev_frame = None
         
-        # Process in batches
-        while True:
-            # Load one batch into memory
-            batch_frames = []
-            batch_indices = []
-            
-            for _ in range(batch_size):
+            # Process in batches - sequential processing to save memory
+            # Process frames one at a time instead of parallel to avoid memory spikes
+            while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                batch_frames.append((frame_idx, frame.copy()))
-                batch_indices.append(frame_idx)
-                frame_idx += 1
-            
-            if not batch_frames:
-                break
-            
-            print(f"📦 Processing batch: frames {batch_indices[0]}-{batch_indices[-1]} ({len(batch_frames)} frames)")
-            
-            # Process batch in parallel
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = []
-                batch_prev_frame = prev_frame
                 
-                for idx, (f_idx, frame) in enumerate(batch_frames):
-                    # Use previous frame from batch or global prev_frame
-                    if idx > 0:
-                        batch_prev_frame = batch_frames[idx - 1][1]
+                # Process frame immediately (no batching to save memory)
+                try:
+                    task_args = (frame_idx, frame, prev_frame, fps, PROCESS_WIDTH, engine)
+                    result = process_single_frame(task_args)
                     
-                    task_args = (f_idx, frame, batch_prev_frame, fps, PROCESS_WIDTH, engine)
-                    future = executor.submit(process_single_frame, task_args)
-                    futures.append((f_idx, future))
-                
-                # Collect batch results
-                batch_results = {}
-                for f_idx, future in futures:
-                    try:
-                        result = future.result()
-                        batch_results[f_idx] = result
-                    except Exception as e:
-                        print(f"❌ Error processing frame {f_idx}: {e}")
-                        import traceback
-                        traceback.print_exc()
-                
-                # Sort and add to main results
-                for f_idx in sorted(batch_results.keys()):
-                    result = batch_results[f_idx]
                     frames_data.append(result)
                     all_entropies.append(result["entropy"])
                     all_conflicts.append(result["conflict"])
+                    
+                    prev_frame = frame.copy()
+                    frame_idx += 1
+                    
+                    # Progress update every 50 frames
+                    if frame_idx % 50 == 0:
+                        elapsed = time.time() - start_time
+                        print(f"⚡ Processed {frame_idx}/{frame_count} frames ({frame_idx/frame_count*100:.1f}%) in {elapsed:.1f}s")
+                        # Force garbage collection periodically
+                        import gc
+                        gc.collect()
+                    
+                except Exception as e:
+                    print(f"❌ Error processing frame {frame_idx}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    frame_idx += 1
+                    continue
                 
-                # Update prev_frame for next batch
-                if batch_frames:
-                    prev_frame = batch_frames[-1][1].copy()
-            
-            # Progress update
-            elapsed = time.time() - start_time
-            print(f"⚡ Processed {len(frames_data)}/{frame_count} frames ({len(frames_data)/frame_count*100:.1f}%) in {elapsed:.1f}s")
-            
-            # Clear batch from memory
-            del batch_frames
-            import gc
-            gc.collect()
+                # Free frame immediately
+                del frame
         
         cap.release()
         print(f"✅ Parallel batch processing complete! Processed {len(frames_data)} frames in {time.time() - start_time:.1f}s")
