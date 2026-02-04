@@ -159,9 +159,16 @@ function VideoPlayer() {
         
         if (response.data.frames && response.data.frames.length > 0) {
           console.log('✅ Results loaded:', response.data.frames.length, 'frames')
+          console.log('Results data:', {
+            status: response.data.status,
+            framesCount: response.data.frames.length,
+            hasHeatmap: !!response.data.frames[0]?.saliency_heatmap,
+            clarityScore: response.data.clarity_score
+          })
           setResults(response.data)
           setLoading(false)
         } else {
+          console.log('⏳ Still processing...', response.data)
           setTimeout(fetchResults, 2000)
         }
       } catch (error) {
@@ -191,7 +198,20 @@ function VideoPlayer() {
 
   // Render heatmap
   useEffect(() => {
-    if (!videoRef.current || !canvasRef.current || !results?.frames) return
+    if (!videoRef.current || !canvasRef.current) {
+      console.log('⚠️ VideoPlayer: Missing video or canvas ref')
+      return
+    }
+    
+    if (!results?.frames || results.frames.length === 0) {
+      console.log('⚠️ VideoPlayer: No results or frames available', { hasResults: !!results, framesCount: results?.frames?.length })
+      return
+    }
+
+    console.log('✅ VideoPlayer: Starting heatmap rendering', {
+      framesCount: results.frames.length,
+      hasHeatmap: !!results.frames[0]?.saliency_heatmap
+    })
 
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -240,11 +260,13 @@ function VideoPlayer() {
       const frame = frame1
 
       if (!frame?.saliency_heatmap) {
+        console.log('⚠️ No heatmap data for frame at time', currentTime)
         canvas.style.display = 'none'
         return
       }
 
       canvas.style.display = 'block'
+      console.log('🎨 Rendering heatmap for time', currentTime.toFixed(2), 's')
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
       // Interpolate between frames for dynamic, smooth heatmap changes
@@ -374,6 +396,15 @@ function VideoPlayer() {
     return null
   }
 
+  console.log('VideoPlayer render:', {
+    videoUrl: !!videoUrl,
+    jobId,
+    loading,
+    hasResults: !!results,
+    resultsFrames: results?.frames?.length || 0,
+    resultsStatus: results?.status
+  })
+
   return (
     <Container>
       {loading && (
@@ -386,6 +417,11 @@ function VideoPlayer() {
       )}
 
       <GlassCard>
+        {/* Debug info */}
+        <div style={{ marginBottom: '1rem', padding: '0.5rem', background: 'rgba(0, 242, 255, 0.1)', borderRadius: '8px', fontSize: '0.875rem', color: '#00F2FF' }}>
+          Debug: loading={loading ? 'yes' : 'no'}, results={results ? `✅ (${results.frames?.length || 0} frames)` : '❌'}, jobId={jobId || 'none'}
+        </div>
+
         <VideoContainer>
           <Video 
             ref={videoRef}
@@ -393,13 +429,13 @@ function VideoPlayer() {
             controls
             style={{ display: 'block', width: '100%' }}
           />
-          <Canvas ref={canvasRef} />
+          <Canvas ref={canvasRef} style={{ display: results?.frames?.length > 0 ? 'block' : 'none' }} />
         </VideoContainer>
 
         <Controls>
-          <Button onClick={handleDownloadPDF} disabled={!results}>
+          <Button onClick={handleDownloadPDF} disabled={!results || !results.frames || results.frames.length === 0}>
             <Download size={20} />
-            Download PDF Report
+            Download PDF Report {results?.frames?.length > 0 ? `(${results.frames.length} frames)` : '(no data)'}
           </Button>
           <Button onClick={handleReset}>
             <RefreshCw size={20} />
@@ -407,7 +443,7 @@ function VideoPlayer() {
           </Button>
         </Controls>
 
-        {results && (
+        {results && results.frames && results.frames.length > 0 && (
           <StatsCard>
             <StatRow>
               <StatLabel>Clarity Score</StatLabel>
@@ -420,6 +456,10 @@ function VideoPlayer() {
             <StatRow>
               <StatLabel>Processing Time</StatLabel>
               <StatValue>{results.processing_time?.toFixed(2) || '0'}s</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>Heatmap Status</StatLabel>
+              <StatValue>{results.frames[0]?.saliency_heatmap ? '✅ Ready' : '❌ No data'}</StatValue>
             </StatRow>
           </StatsCard>
         )}
