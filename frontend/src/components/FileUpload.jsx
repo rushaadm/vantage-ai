@@ -114,7 +114,12 @@ function FileUpload() {
     }
 
     setUploading(true)
-    setStatus('Uploading video...')
+    setStatus('Preparing upload...')
+    
+    console.log('=== UPLOAD START ===')
+    console.log('File:', file.name)
+    console.log('File size:', (file.size / 1024 / 1024).toFixed(2), 'MB')
+    console.log('File type:', file.type)
 
     try {
       const formData = new FormData()
@@ -122,19 +127,42 @@ function FileUpload() {
       const sampleRate = useStore.getState().frameSamplingRate || 2
       formData.append('sample_rate', sampleRate.toString())
       
-      console.log('Uploading file:', file.name, 'sample_rate:', sampleRate)
+      console.log('FormData created, sample_rate:', sampleRate)
 
       const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
-      console.log('Uploading to:', apiUrl)
+      console.log('API URL:', apiUrl)
+      console.log('Full upload URL:', `${apiUrl}/upload`)
+      
+      setStatus('Connecting to server...')
+      
+      // Add upload progress tracking
+      const uploadStartTime = Date.now()
+      
+      console.log('Sending POST request...')
+      setStatus('Uploading video...')
       
       const response = await axios.post(`${apiUrl}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
-        timeout: 60000, // 60 second timeout for large files
+        timeout: 120000, // 120 second timeout for large files
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            const elapsed = (Date.now() - uploadStartTime) / 1000
+            const statusMsg = `Uploading video... ${percentCompleted}% (${(progressEvent.loaded / 1024 / 1024).toFixed(2)} MB / ${(progressEvent.total / 1024 / 1024).toFixed(2)} MB)`
+            setStatus(statusMsg)
+            console.log(`Upload progress: ${percentCompleted}% in ${elapsed.toFixed(1)}s`)
+          } else {
+            console.log('Upload progress: loaded', progressEvent.loaded, 'bytes')
+            setStatus(`Uploading video... ${(progressEvent.loaded / 1024 / 1024).toFixed(2)} MB`)
+          }
+        },
       })
 
-      console.log('Upload response:', response.data)
+      console.log('=== UPLOAD SUCCESS ===')
+      console.log('Response status:', response.status)
+      console.log('Response data:', response.data)
 
       // Check for error response
       if (response.data.error) {
