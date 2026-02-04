@@ -135,17 +135,21 @@ def process_video(job_id: str, video_path: str):
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
             
-            # Granular heatmap - higher resolution for pixel-level detail
+            # Optimized heatmap - balance granularity with file size
             heatmap_h, heatmap_w = saliency_map.shape[:2]
-            # Store at 1/2 resolution for granularity (was 1/4)
-            target_w = max(64, heatmap_w // 2)  # Higher resolution for granularity
-            target_h = max(64, heatmap_h // 2)  # Higher resolution for granularity
+            # Store at 1/3 resolution to reduce JSON size (still granular but manageable)
+            target_w = max(48, heatmap_w // 3)  # Reduced from 1/2 to 1/3 for smaller files
+            target_h = max(48, heatmap_h // 3)  # Reduced from 1/2 to 1/3
             # Apply Gaussian blur for smoothness before downsampling
             saliency_blurred = cv2.GaussianBlur(saliency_map, (7, 7), 1.5)
             motion_blurred = cv2.GaussianBlur(motion_map, (7, 7), 1.5)
             # Use cubic interpolation for smooth, granular heatmaps
             saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
             motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            
+            # Quantize to reduce precision and file size (round to 2 decimal places)
+            saliency_small = np.round(saliency_small * 100) / 100
+            motion_small = np.round(motion_small * 100) / 100
             
             # Store frame data (sampled frames only)
             frames_data.append({
@@ -222,15 +226,23 @@ def process_video(job_id: str, video_path: str):
         result_path = RESULTS_DIR / f"{job_id}.json"
         print(f"Saving results to {result_path}")
         print(f"Results: {len(frames_data)} frames, status: complete")
-        with open(result_path, "w") as f:
-            json.dump(result_data, f)
-        print(f"Results saved successfully to {result_path}")
         
-        # Verify file was written
-        if result_path.exists():
-            print(f"✅ Results file confirmed: {result_path.exists()}, size: {result_path.stat().st_size} bytes")
-        else:
-            print(f"❌ ERROR: Results file not found after write!")
+        # Save with error handling and file size check
+        try:
+            with open(result_path, "w") as f:
+                json.dump(result_data, f, separators=(',', ':'))  # Compact JSON
+            file_size = result_path.stat().st_size
+            print(f"✅ Results saved successfully: {file_size / 1024 / 1024:.2f} MB")
+            
+            # Verify JSON is valid by reading it back
+            with open(result_path, "r") as f:
+                test_data = json.load(f)
+            print(f"✅ JSON validation passed: {len(test_data.get('frames', []))} frames")
+        except Exception as e:
+            print(f"❌ ERROR saving results: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
         print(f"Processing complete for job {job_id} in {time.time() - start_time:.2f}s ({len(frames_data)} frames)")
         
@@ -285,12 +297,30 @@ async def get_results(job_id: str):
     if not result_path.exists():
         return {"status": "processing", "message": "Video is still being processed"}
     
-    with open(result_path, "r") as f:
-        data = json.load(f)
-        # If partial results, mark as still processing
-        if data.get("partial", False):
-            data["status"] = "processing"
-        return data
+    try:
+        with open(result_path, "r") as f:
+            data = json.load(f)
+            # If partial results, mark as still processing
+            if data.get("partial", False):
+                data["status"] = "processing"
+            return data
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON decode error for {job_id}: {e}")
+        # Return error status instead of crashing
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error": "Results file corrupted",
+            "message": "Processing completed but results file is corrupted. Please try uploading again."
+        }
+    except Exception as e:
+        print(f"❌ Error reading results for {job_id}: {e}")
+        return {
+            "job_id": job_id,
+            "status": "error",
+            "error": str(e),
+            "message": "Error reading results file"
+        }
 
 @app.get("/download-pdf/{job_id}")
 async def download_pdf(job_id: str):
