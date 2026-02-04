@@ -48,21 +48,9 @@ def process_video(job_id: str, video_path: str):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps if fps > 0 else 0
         
-        # Optimized processing - balance granularity with file size
-        PROCESS_WIDTH = 480  # Higher resolution for granularity
-        # Process every 0.2 seconds (5 FPS analysis rate - reduces file size)
-        BASE_SAMPLE_RATE = max(1, int(fps / 5))  # 5 samples per second (reduced from 10)
-        if BASE_SAMPLE_RATE < 1:
-            BASE_SAMPLE_RATE = 1
-        
-        # Cap at reasonable number to prevent huge files
-        max_samples = min(150, int(duration * 5))  # Max 150 samples or 5 per second (reduced)
-        if frame_count > max_samples * BASE_SAMPLE_RATE:
-            BASE_SAMPLE_RATE = max(1, int(frame_count / max_samples))
-        
-        # Motion thresholds for adaptive sampling
-        motion_threshold_high = 0.1  # High motion threshold
-        motion_threshold_low = 0.02   # Low motion threshold
+        # Process ALL frames - lightweight but complete
+        PROCESS_WIDTH = 320  # Moderate resolution for speed
+        # Process EVERY frame (no sampling)
         
         frames_data = []
         all_entropies = []
@@ -70,42 +58,15 @@ def process_video(job_id: str, video_path: str):
         
         frame_idx = 0
         prev_frame = None
-        processed_frames_list = []  # For progressive streaming
-        adaptive_sample_rate = BASE_SAMPLE_RATE  # Initialize adaptive rate
+        
+        print(f"Processing ALL {frame_count} frames at {fps} FPS...")
         
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             
-            # Adaptive sampling: adjust rate based on motion
-            if prev_frame is not None:
-                # Quick motion check
-                prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-                curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                if prev_gray.shape == curr_gray.shape:
-                    diff = cv2.absdiff(prev_gray, curr_gray)
-                    motion_level = np.mean(diff) / 255.0
-                    
-                    # Adjust sample rate based on motion
-                    if motion_level > motion_threshold_high:
-                        adaptive_sample_rate = max(1, BASE_SAMPLE_RATE // 2)  # More frames (2x)
-                    elif motion_level < motion_threshold_low:
-                        adaptive_sample_rate = BASE_SAMPLE_RATE * 2  # Fewer frames (0.5x)
-                    else:
-                        adaptive_sample_rate = BASE_SAMPLE_RATE  # Normal rate
-            
-            # Skip frames based on adaptive sample rate
-            if frame_idx % adaptive_sample_rate != 0:
-                frame_idx += 1
-                prev_frame = frame  # Update prev_frame even when skipping
-                continue
-            
-            # Remove time limit - process all frames (user wants complete analysis)
-            # elapsed = time.time() - start_time
-            # if elapsed > max_processing_time:
-            #     print(f"Time limit reached at frame {frame_idx}")
-            #     break
+            # Process every frame - no skipping
             
             # Aggressive downscaling for speed
             h, w = frame.shape[:2]
