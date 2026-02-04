@@ -3,7 +3,9 @@ import styled, { keyframes } from 'styled-components'
 import axios from 'axios'
 import { Download, RefreshCw, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
-import { API_URL } from '../config'
+
+// API URL with fallback
+const API_URL = import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
 
 const Container = styled.div`
   max-width: 1200px;
@@ -345,8 +347,7 @@ function VideoPlayer() {
 
   const handleDownloadPDF = async () => {
     try {
-      const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
-      const response = await axios.get(`${apiUrl}/download-pdf/${jobId}`, {
+      const response = await axios.get(`${API_URL}/download-pdf/${jobId}`, {
         responseType: 'blob'
       })
       const url = window.URL.createObjectURL(new Blob([response.data]))

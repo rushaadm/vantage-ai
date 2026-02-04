@@ -5,6 +5,9 @@ import axios from 'axios'
 import { Upload, Video } from 'lucide-react'
 import { useStore } from '../store'
 
+// API URL with fallback
+const API_URL = import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+
 const GlassCard = styled.div`
   ${props => props.theme.glass}
   padding: 3rem;
@@ -124,8 +127,7 @@ function FileUpload() {
     const interval = setInterval(async () => {
       attempts++
       try {
-        const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
-        const response = await axios.get(`${apiUrl}/results/${jobId}`)
+        const response = await axios.get(`${API_URL}/results/${jobId}`)
         
         if (response.data.status !== 'processing') {
           clearInterval(interval)
