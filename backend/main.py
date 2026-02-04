@@ -9,6 +9,7 @@ import numpy as np
 import time
 import gc
 import os
+import asyncio
 from engine.saliency import VantageEngine
 from engine.reporter import AuditReport, get_ai_suggestions
 
@@ -376,9 +377,12 @@ def _finalize_results(job_id, all_entropies, all_conflicts, all_saliencies, all_
     print(f"✅ Complete: {data['processed_frames']} frames in {elapsed:.1f}s")
 
 @app.post("/upload")
-async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_video(file: UploadFile = File(...), sample_rate: int = Form(2)):
     """Upload video and start processing"""
     try:
+        # Validate sample_rate (1-10)
+        sample_rate = max(1, min(10, int(sample_rate)))
+        
         job_id = str(uuid.uuid4())
         file_extension = Path(file.filename).suffix
         
@@ -393,7 +397,8 @@ async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = Fil
                 return {"error": "Empty file"}, 400
             f.write(content)
         
-        background_tasks.add_task(process_video, job_id, str(video_path))
+        # Start background processing with sample_rate
+        asyncio.create_task(process_video(job_id, str(video_path), sample_rate))
         
         return {"job_id": job_id, "status": "processing"}
     except Exception as e:
