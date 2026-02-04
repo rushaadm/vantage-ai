@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import uuid
 import os
 import json
@@ -343,6 +343,44 @@ async def get_results(job_id: str):
             "error": str(e),
             "message": "Error reading results file"
         }
+
+@app.get("/results-stream/{job_id}")
+async def stream_results(job_id: str):
+    """Stream results using Server-Sent Events - no polling needed!"""
+    async def event_generator():
+        import asyncio
+        max_wait = 300  # Max 5 minutes
+        check_interval = 1  # Check every second
+        elapsed = 0
+        
+        while elapsed < max_wait:
+            result_path = RESULTS_DIR / f"{job_id}.json"
+            
+            if result_path.exists():
+                try:
+                    with open(result_path, "r") as f:
+                        data = json.load(f)
+                    
+                    # Send complete results
+                    yield f"data: {json.dumps(data)}\n\n"
+                    return
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Results file corrupted'})}\n\n"
+                    return
+                except Exception as e:
+                    yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+                    return
+            else:
+                # Send progress update
+                yield f"data: {json.dumps({'status': 'processing', 'message': f'Processing... ({elapsed}s elapsed)'})}\n\n"
+            
+            await asyncio.sleep(check_interval)
+            elapsed += check_interval
+        
+        # Timeout
+        yield f"data: {json.dumps({'status': 'error', 'error': 'Processing timeout'})}\n\n"
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/download-pdf/{job_id}")
 async def download_pdf(job_id: str):

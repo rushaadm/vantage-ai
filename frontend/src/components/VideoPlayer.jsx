@@ -134,74 +134,81 @@ function VideoPlayer() {
   const [loading, setLoading] = useState(true)
   const [heatmapWorker, setHeatmapWorker] = useState(null)
 
-  // Fetch results
+  // Stream results using Server-Sent Events - NO POLLING!
   useEffect(() => {
     if (!jobId) {
       setLoading(false)
       return
     }
 
-    const fetchResults = async () => {
+    const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+    console.log('🔍 Starting SSE stream for job:', jobId)
+    
+    // Use Server-Sent Events instead of polling
+    const eventSource = new EventSource(`${apiUrl}/results-stream/${jobId}`)
+    
+    eventSource.onmessage = (event) => {
       try {
-        const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
-        console.log('🔍 Fetching results from:', `${apiUrl}/results/${jobId}`)
-        const response = await axios.get(`${apiUrl}/results/${jobId}`)
-        
-        console.log('📦 Response received:', {
-          status: response.data.status,
-          hasFrames: !!response.data.frames,
-          framesCount: response.data.frames?.length || 0,
-          keys: Object.keys(response.data)
+        const data = JSON.parse(event.data)
+        console.log('📦 SSE data received:', {
+          status: data.status,
+          hasFrames: !!data.frames,
+          framesCount: data.frames?.length || 0
         })
         
-        if (response.data.status === 'error') {
-          console.error('❌ Error status:', response.data)
+        if (data.status === 'error') {
+          console.error('❌ Error status:', data)
           setLoading(false)
-          alert(`Error: ${response.data.message || response.data.error}`)
+          eventSource.close()
+          alert(`Error: ${data.message || data.error}`)
           return
         }
         
-        // Check if still processing (no frames yet or status is processing)
-        if (response.data.status === 'processing' || !response.data.frames || response.data.frames.length === 0) {
-          console.log('⏳ Still processing...', {
-            status: response.data.status,
-            message: response.data.message,
-            hasFrames: !!response.data.frames
-          })
-          setTimeout(fetchResults, 2000)
+        if (data.status === 'processing') {
+          console.log('⏳ Processing...', data.message)
+          // Keep loading state - SSE will push updates automatically
           return
         }
         
         // Results ready!
-        if (response.data.frames && response.data.frames.length > 0) {
-          console.log('✅ Results loaded:', response.data.frames.length, 'frames')
-          console.log('Results data:', {
-            status: response.data.status,
-            framesCount: response.data.frames.length,
-            hasHeatmap: !!response.data.frames[0]?.saliency_heatmap,
-            clarityScore: response.data.clarity_score,
-            firstFrameTime: response.data.frames[0]?.time
-          })
-          setResults(response.data)
+        if (data.frames && data.frames.length > 0) {
+          console.log('✅ Results loaded via SSE:', data.frames.length, 'frames')
+          setResults(data)
           setLoading(false)
-        } else {
-          console.log('⏳ Waiting for frames...', response.data)
-          setTimeout(fetchResults, 2000)
+          eventSource.close() // Close connection once we have results
         }
       } catch (error) {
-        console.error('❌ Fetch error:', error)
-        if (error.response?.status === 404) {
-          console.log('⏳ Job not found yet, retrying...')
-          setTimeout(fetchResults, 2000)
-        } else {
-          console.error('Error details:', error.response?.data || error.message)
-          setLoading(false)
-          alert(`Failed to fetch results: ${error.message}`)
-        }
+        console.error('❌ SSE parse error:', error)
+        eventSource.close()
+        setLoading(false)
       }
     }
-
-    fetchResults()
+    
+    eventSource.onerror = (error) => {
+      console.error('❌ SSE connection error:', error)
+      eventSource.close()
+      // Fallback to regular polling if SSE fails
+      console.log('🔄 Falling back to polling...')
+      const fallbackPoll = async () => {
+        try {
+          const response = await axios.get(`${apiUrl}/results/${jobId}`)
+          if (response.data.status === 'complete' && response.data.frames?.length > 0) {
+            setResults(response.data)
+            setLoading(false)
+          } else {
+            setTimeout(fallbackPoll, 3000) // Poll every 3 seconds as fallback
+          }
+        } catch (err) {
+          console.error('Fallback poll error:', err)
+          setTimeout(fallbackPoll, 3000)
+        }
+      }
+      fallbackPoll()
+    }
+    
+    return () => {
+      eventSource.close()
+    }
   }, [jobId, setResults])
 
   // Initialize Web Worker
