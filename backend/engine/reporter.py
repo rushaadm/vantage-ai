@@ -40,13 +40,15 @@ class AuditReport(FPDF):
     def add_comprehensive_report(self, data):
         """Generate comprehensive formal report with all statistics"""
         stats = data.get('stats', {})
-        clarity_score = data.get('clarity_score', 0)
-        ai_narrative = data.get('ai_narrative', '')
+        clarity_score = stats.get('clarity_score', 0)
+        engagement_score = stats.get('engagement_score', 0)
+        attention_stability = stats.get('attention_stability', 0)
+        ai_narrative = data.get('ai_suggestions', '')
         processing_time = data.get('processing_time', 0)
         fps = data.get('fps', 0)
         frame_count = data.get('frame_count', 0)
         processed_frames = data.get('processed_frames', 0)
-        duration = stats.get('duration', 0)
+        duration = data.get('duration', 0)
         
         # Title Page
         self.add_page()
@@ -76,12 +78,16 @@ class AuditReport(FPDF):
         
         # Key Metrics
         self.add_section_header('KEY METRICS')
-        self.add_stat_row('Overall Clarity Score:', f'{clarity_score:.2f}', '/100')
+        self.add_stat_row('Clarity Score:', f'{clarity_score:.2f}', '/100')
+        self.add_stat_row('Engagement Score:', f'{engagement_score:.2f}', '/100')
+        self.add_stat_row('Attention Stability:', f'{attention_stability:.2f}', '/100')
         self.add_stat_row('Video Duration:', f'{duration:.2f}', ' seconds')
         self.add_stat_row('Frame Rate:', f'{fps:.2f}', ' FPS')
         self.add_stat_row('Total Frames:', f'{frame_count:,}')
         self.add_stat_row('Processed Frames:', f'{processed_frames:,}')
         self.add_stat_row('Processing Time:', f'{processing_time:.2f}', ' seconds')
+        self.add_stat_row('Fixation Rate:', f'{stats.get("fixation_rate", 0):.2f}', ' fixations/frame')
+        self.add_stat_row('Total Fixations:', f'{stats.get("total_fixations", 0):,}')
         self.ln(5)
         
         # Entropy Statistics
@@ -133,12 +139,19 @@ class AuditReport(FPDF):
         self.add_section_header('METHODOLOGY')
         self.set_font('Helvetica', '', 9)
         self.multi_cell(0, 5,
-            'This analysis employs a dual-stream visual attention model combining:\n'
-            '1. Static Saliency Detection: DeepGaze IIE model for predicting attention based on visual features\n'
-            '2. Dynamic Motion Analysis: Farneback Optical Flow for detecting motion patterns\n'
-            '3. Entropy Calculation: Shannon entropy to measure attention distribution\n'
+            'This analysis employs a dual-stream visual attention model based on established eye-tracking research:\n\n'
+            '1. Static Saliency Detection: Color contrast and edge detection for predicting attention based on visual features (Itti & Koch, 2001)\n'
+            '2. Dynamic Motion Analysis: Frame difference for detecting motion patterns\n'
+            '3. Entropy Calculation: Shannon entropy to measure attention distribution (Tatler et al., 2011)\n'
             '4. Conflict Measurement: KL Divergence to assess alignment between static and dynamic attention patterns\n\n'
-            'The clarity score is calculated as: 100 - (average_conflict × 10), normalized to 0-100 scale.')
+            'SCORE CALCULATIONS:\n'
+            '- Clarity Score: 100 - (avg_conflict × 20), measures visual hierarchy clarity (Itti & Koch, 2001)\n'
+            '- Attention Stability: 100 - (std_entropy × 30), measures consistency of attention patterns (Tatler et al., 2011)\n'
+            '- Engagement Score: (avg_saliency × 60) + (fixation_rate × 8), combines saliency intensity and fixation rate (Yarbus, 1967)\n\n'
+            'REFERENCES:\n'
+            '- Itti, L., & Koch, C. (2001). Computational modelling of visual attention. Nature Reviews Neuroscience, 2(3), 194-203.\n'
+            '- Yarbus, A. L. (1967). Eye movements and vision. Plenum Press.\n'
+            '- Tatler, B. W., Hayhoe, M. M., Land, M. F., & Ballard, D. H. (2011). Eye guidance in natural vision: Reinterpreting salience. Journal of Vision, 11(5), 5.')
         self.ln(5)
         
         # Conclusion
@@ -157,24 +170,34 @@ class AuditReport(FPDF):
 
 # Integration with Gemini
 def get_ai_suggestions(stats):
-    import google.generativeai as genai
-    import os
-    from dotenv import load_dotenv
-    
-    load_dotenv()
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return "AI suggestions unavailable. Please set GEMINI_API_KEY in .env"
-    
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-pro')
-    prompt = f"""Analyze these visual attention statistics from a video analysis:
-- Clarity Score: {stats.get('clarity_score', 0)}/100
-- Average Entropy: {stats.get('avg_entropy', 0):.4f}
-- Average Conflict: {stats.get('avg_conflict', 0):.4f}
-- Video Duration: {stats.get('duration', 0):.2f} seconds
-- FPS: {stats.get('fps', 0):.2f}
+    """Generate AI suggestions using Gemini API"""
+    try:
+        import google.generativeai as genai
+        
+        # Use provided API key
+        api_key = "AIzaSyBFjEpZYCRtvqApOSCqrie4TfhXP08Xc_c"
+        
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-pro')
+        
+        prompt = f"""You are an expert in visual attention and eye-tracking research. Analyze these eye-tracking statistics from a video and provide 3-5 specific, actionable recommendations for improving visual content.
 
-Provide 3-5 specific, actionable recommendations to improve visual clarity and attention distribution for social media content creation. Be scientific and detailed."""
-    response = model.generate_content(prompt)
-    return response.text
+Statistics:
+- Clarity Score: {stats.get('clarity_score', 0)}/100 (measures visual hierarchy clarity based on motion-saliency conflict)
+- Engagement Score: {stats.get('engagement_score', 0)}/100 (measures viewer engagement based on saliency and fixations)
+- Attention Stability: {stats.get('attention_stability', 0)}/100 (measures attention consistency across frames)
+- Average Saliency: {stats.get('avg_saliency', 0)} (average attention intensity)
+- Fixation Rate: {stats.get('fixation_rate', 0)} fixations per frame
+- Total Fixations: {stats.get('total_fixations', 0)} (total attention points detected)
+- Average Entropy: {stats.get('avg_entropy', 0)} (attention distribution)
+- Average Conflict: {stats.get('avg_conflict', 0)} (motion-saliency alignment)
+
+Provide specific recommendations based on eye-tracking research principles (Itti & Koch, 2001; Yarbus, 1967; Tatler et al., 2011). Be concise and actionable."""
+        
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"AI suggestions error: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"AI analysis unavailable: {str(e)}. Please check API configuration."

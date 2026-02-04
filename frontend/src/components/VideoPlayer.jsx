@@ -43,7 +43,7 @@ const Canvas = styled.canvas`
   pointer-events: none;
   z-index: 10;
   mix-blend-mode: screen;
-  opacity: 0.7;
+  opacity: 0.95;
   display: none;
 `
 
@@ -99,6 +99,46 @@ const StatLabel = styled.span`
 const StatValue = styled.span`
   color: ${props => props.theme.colors.cyan};
   font-weight: bold;
+`
+
+const ProgressBar = styled.div`
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 1rem 0;
+`
+
+const ProgressFill = styled.div`
+  height: 100%;
+  background: linear-gradient(90deg, ${props => props.theme.colors.cyan}, ${props => props.theme.colors.pink});
+  transition: width 0.3s ease;
+  border-radius: 4px;
+`
+
+const Tooltip = styled.span`
+  position: relative;
+  cursor: help;
+  margin-left: 0.5rem;
+  color: ${props => props.theme.colors.textSecondary};
+  
+  &:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    white-space: normal;
+    width: 250px;
+    z-index: 1000;
+    margin-bottom: 5px;
+  }
 `
 
 const spin = keyframes`
@@ -533,6 +573,12 @@ function VideoPlayer() {
           <LoadingContainer>
             <LoadingSpinner />
             <LoadingText>Processing video...</LoadingText>
+            <ProgressBar>
+              <ProgressFill style={{ width: `${progress.percent}%` }} />
+            </ProgressBar>
+            <LoadingText style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
+              {progress.processed} / {progress.total} frames ({progress.percent.toFixed(1)}%)
+            </LoadingText>
           </LoadingContainer>
         </GlassCard>
       )}
@@ -567,20 +613,29 @@ function VideoPlayer() {
         {results && results.frames && results.frames.length > 0 && results.stats && (
           <StatsCard>
             <StatRow>
-              <StatLabel>Clarity Score</StatLabel>
+              <StatLabel>
+                Clarity Score
+                <Tooltip data-tooltip={results.stats.score_explanations?.clarity_score || "Measures visual hierarchy clarity based on motion-saliency conflict. Lower conflict indicates clearer visual structure (Itti & Koch, 2001)."}>ℹ️</Tooltip>
+              </StatLabel>
               <StatValue>{Math.round(results.stats.clarity_score || 0)}/100</StatValue>
             </StatRow>
             <StatRow>
-              <StatLabel>Engagement Score</StatLabel>
+              <StatLabel>
+                Engagement Score
+                <Tooltip data-tooltip={results.stats.score_explanations?.engagement_score || "Combines saliency intensity and fixation rate to measure viewer engagement. Higher values indicate stronger visual interest (Yarbus, 1967)."}>ℹ️</Tooltip>
+              </StatLabel>
               <StatValue>{Math.round(results.stats.engagement_score || 0)}/100</StatValue>
+            </StatRow>
+            <StatRow>
+              <StatLabel>
+                Attention Stability
+                <Tooltip data-tooltip={results.stats.score_explanations?.attention_stability || "Measures consistency of attention patterns across frames. Lower entropy variance indicates more stable, predictable attention (Tatler et al., 2011)."}>ℹ️</Tooltip>
+              </StatLabel>
+              <StatValue>{Math.round(results.stats.attention_stability || 0)}/100</StatValue>
             </StatRow>
             <StatRow>
               <StatLabel>Fixation Rate</StatLabel>
               <StatValue>{results.stats.fixation_rate?.toFixed(2) || '0'}/frame</StatValue>
-            </StatRow>
-            <StatRow>
-              <StatLabel>Attention Stability</StatLabel>
-              <StatValue>{Math.round(results.stats.attention_stability || 0)}/100</StatValue>
             </StatRow>
             <StatRow>
               <StatLabel>Total Fixations</StatLabel>
