@@ -144,39 +144,59 @@ function VideoPlayer() {
     const fetchResults = async () => {
       try {
         const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+        console.log('🔍 Fetching results from:', `${apiUrl}/results/${jobId}`)
         const response = await axios.get(`${apiUrl}/results/${jobId}`)
         
+        console.log('📦 Response received:', {
+          status: response.data.status,
+          hasFrames: !!response.data.frames,
+          framesCount: response.data.frames?.length || 0,
+          keys: Object.keys(response.data)
+        })
+        
         if (response.data.status === 'error') {
+          console.error('❌ Error status:', response.data)
           setLoading(false)
           alert(`Error: ${response.data.message || response.data.error}`)
           return
         }
         
-        if (response.data.status === 'processing') {
+        // Check if still processing (no frames yet or status is processing)
+        if (response.data.status === 'processing' || !response.data.frames || response.data.frames.length === 0) {
+          console.log('⏳ Still processing...', {
+            status: response.data.status,
+            message: response.data.message,
+            hasFrames: !!response.data.frames
+          })
           setTimeout(fetchResults, 2000)
           return
         }
         
+        // Results ready!
         if (response.data.frames && response.data.frames.length > 0) {
           console.log('✅ Results loaded:', response.data.frames.length, 'frames')
           console.log('Results data:', {
             status: response.data.status,
             framesCount: response.data.frames.length,
             hasHeatmap: !!response.data.frames[0]?.saliency_heatmap,
-            clarityScore: response.data.clarity_score
+            clarityScore: response.data.clarity_score,
+            firstFrameTime: response.data.frames[0]?.time
           })
           setResults(response.data)
           setLoading(false)
         } else {
-          console.log('⏳ Still processing...', response.data)
+          console.log('⏳ Waiting for frames...', response.data)
           setTimeout(fetchResults, 2000)
         }
       } catch (error) {
+        console.error('❌ Fetch error:', error)
         if (error.response?.status === 404) {
+          console.log('⏳ Job not found yet, retrying...')
           setTimeout(fetchResults, 2000)
         } else {
-          console.error('Error:', error)
+          console.error('Error details:', error.response?.data || error.message)
           setLoading(false)
+          alert(`Failed to fetch results: ${error.message}`)
         }
       }
     }
