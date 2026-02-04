@@ -48,15 +48,15 @@ def process_video(job_id: str, video_path: str):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = frame_count / fps if fps > 0 else 0
         
-        # Granular processing - higher resolution and more frames
+        # Optimized processing - balance granularity with file size
         PROCESS_WIDTH = 480  # Higher resolution for granularity
-        # Process every 0.1 seconds (10 FPS analysis rate for smooth heatmaps)
-        BASE_SAMPLE_RATE = max(1, int(fps / 10))  # 10 samples per second
+        # Process every 0.2 seconds (5 FPS analysis rate - reduces file size)
+        BASE_SAMPLE_RATE = max(1, int(fps / 5))  # 5 samples per second (reduced from 10)
         if BASE_SAMPLE_RATE < 1:
             BASE_SAMPLE_RATE = 1
         
-        # For very long videos, cap at reasonable number but keep granularity
-        max_samples = min(300, int(duration * 10))  # Max 300 samples or 10 per second
+        # Cap at reasonable number to prevent huge files
+        max_samples = min(150, int(duration * 5))  # Max 150 samples or 5 per second (reduced)
         if frame_count > max_samples * BASE_SAMPLE_RATE:
             BASE_SAMPLE_RATE = max(1, int(frame_count / max_samples))
         
@@ -135,30 +135,34 @@ def process_video(job_id: str, video_path: str):
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
             
-            # Optimized heatmap - balance granularity with file size
+            # Optimized heatmap - reduce file size while maintaining quality
             heatmap_h, heatmap_w = saliency_map.shape[:2]
-            # Store at 1/3 resolution to reduce JSON size (still granular but manageable)
-            target_w = max(48, heatmap_w // 3)  # Reduced from 1/2 to 1/3 for smaller files
-            target_h = max(48, heatmap_h // 3)  # Reduced from 1/2 to 1/3
+            # Store at 1/4 resolution to keep files manageable (was 1/3)
+            target_w = max(40, heatmap_w // 4)  # Further reduced for smaller files
+            target_h = max(40, heatmap_h // 4)  # Further reduced
             # Apply Gaussian blur for smoothness before downsampling
             saliency_blurred = cv2.GaussianBlur(saliency_map, (7, 7), 1.5)
             motion_blurred = cv2.GaussianBlur(motion_map, (7, 7), 1.5)
-            # Use cubic interpolation for smooth, granular heatmaps
-            saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
-            motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            # Use linear interpolation (faster, smaller files)
+            saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+            motion_small = cv2.resize(motion_blurred, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
             
-            # Quantize to reduce precision and file size (round to 2 decimal places)
-            saliency_small = np.round(saliency_small * 100) / 100
-            motion_small = np.round(motion_small * 100) / 100
+            # Quantize to reduce precision and file size (round to 1 decimal place - more aggressive)
+            saliency_small = np.round(saliency_small * 10) / 10
+            motion_small = np.round(motion_small * 10) / 10
             
-            # Store frame data (sampled frames only)
+            # Convert to list with minimal precision
+            saliency_list = saliency_small.tolist()
+            motion_list = motion_small.tolist()
+            
+            # Store frame data (sampled frames only) - use pre-converted lists
             frames_data.append({
                 "frame": frame_idx,
-                "time": frame_idx / fps if fps > 0 else frame_idx / 30,
-                "entropy": metrics["entropy"],
-                "conflict": metrics["conflict"],
-                "saliency_heatmap": saliency_small.tolist(),
-                "motion_heatmap": motion_small.tolist(),
+                "time": round(frame_idx / fps if fps > 0 else frame_idx / 30, 2),
+                "entropy": round(metrics["entropy"], 2),
+                "conflict": round(metrics["conflict"], 2),
+                "saliency_heatmap": saliency_list,
+                "motion_heatmap": motion_list,
                 "original_size": [h, w],
                 "heatmap_size": [target_h, target_w]
             })
@@ -229,15 +233,33 @@ def process_video(job_id: str, video_path: str):
         
         # Save with error handling and file size check
         try:
-            with open(result_path, "w") as f:
-                json.dump(result_data, f, separators=(',', ':'))  # Compact JSON
+            # Write to temp file first, then rename (atomic write)
+            temp_path = result_path.with_suffix('.json.tmp')
+            
+            # Use ensure_ascii=False and compact format
+            with open(temp_path, "w", encoding='utf-8') as f:
+                json.dump(result_data, f, separators=(',', ':'), ensure_ascii=False)
+            
+            # Verify temp file is valid JSON before renaming
+            with open(temp_path, "r", encoding='utf-8') as f:
+                test_data = json.load(f)
+            
+            # Atomic rename (prevents corruption)
+            temp_path.replace(result_path)
+            
             file_size = result_path.stat().st_size
             print(f"✅ Results saved successfully: {file_size / 1024 / 1024:.2f} MB")
-            
-            # Verify JSON is valid by reading it back
-            with open(result_path, "r") as f:
-                test_data = json.load(f)
             print(f"✅ JSON validation passed: {len(test_data.get('frames', []))} frames")
+        except json.JSONEncodeError as e:
+            print(f"❌ JSON encode error: {e}")
+            # Try to save without heatmaps as fallback
+            result_data_no_heatmaps = result_data.copy()
+            for frame in result_data_no_heatmaps.get('frames', []):
+                frame.pop('saliency_heatmap', None)
+                frame.pop('motion_heatmap', None)
+            with open(result_path, "w", encoding='utf-8') as f:
+                json.dump(result_data_no_heatmaps, f, separators=(',', ':'))
+            print(f"⚠️ Saved without heatmaps due to size issue")
         except Exception as e:
             print(f"❌ ERROR saving results: {e}")
             import traceback
