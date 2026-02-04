@@ -74,7 +74,8 @@ function FileUpload() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await axios.post(`${API_URL}/upload`, formData, {
+      const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+      const response = await axios.post(`${apiUrl}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -123,7 +124,8 @@ function FileUpload() {
     const interval = setInterval(async () => {
       attempts++
       try {
-        const response = await axios.get(`${API_URL}/results/${jobId}`)
+        const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+        const response = await axios.get(`${apiUrl}/results/${jobId}`)
         
         if (response.data.status !== 'processing') {
           clearInterval(interval)

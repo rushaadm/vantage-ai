@@ -344,7 +344,8 @@ function VideoPlayer() {
 
   const handleDownloadPDF = async () => {
     try {
-      const response = await axios.get(`${API_URL}/download-pdf/${jobId}`, {
+      const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+      const response = await axios.get(`${apiUrl}/download-pdf/${jobId}`, {
         responseType: 'blob'
       })
       const url = window.URL.createObjectURL(new Blob([response.data]))
