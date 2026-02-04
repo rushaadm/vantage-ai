@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 import uuid
 import json
 from pathlib import Path
@@ -383,27 +383,48 @@ async def upload_video(file: UploadFile = File(...), sample_rate: int = Form(2))
         # Validate sample_rate (1-10)
         sample_rate = max(1, min(10, int(sample_rate)))
         
+        if not file.filename:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No filename provided"}
+            )
+        
         job_id = str(uuid.uuid4())
         file_extension = Path(file.filename).suffix
         
         if file_extension.lower() not in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
-            return {"error": "Unsupported file format"}, 400
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Unsupported file format: {file_extension}"}
+            )
         
         video_path = UPLOAD_DIR / f"{job_id}{file_extension}"
         
         with open(video_path, "wb") as f:
             content = await file.read()
             if len(content) == 0:
-                return {"error": "Empty file"}, 400
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Empty file"}
+                )
             f.write(content)
         
         # Start background processing with sample_rate
         asyncio.create_task(process_video(job_id, str(video_path), sample_rate))
         
-        return {"job_id": job_id, "status": "processing"}
+        print(f"✅ Upload successful: job_id={job_id}, sample_rate={sample_rate}")
+        return JSONResponse(
+            status_code=200,
+            content={"job_id": job_id, "status": "processing"}
+        )
     except Exception as e:
-        print(f"Upload error: {e}")
-        return {"error": f"Upload failed: {str(e)}"}, 500
+        print(f"❌ Upload error: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Upload failed: {str(e)}"}
+        )
 
 @app.get("/results/{job_id}")
 async def get_results(job_id: str):

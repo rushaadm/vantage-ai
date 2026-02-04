@@ -128,6 +128,8 @@ function FileUpload() {
         },
       })
 
+      console.log('Upload response:', response.data)
+
       // Check for error response
       if (response.data.error) {
         throw new Error(response.data.error)
@@ -135,7 +137,8 @@ function FileUpload() {
 
       const jobId = response.data.job_id
       if (!jobId) {
-        throw new Error('No job ID returned from server')
+        console.error('Response data:', response.data)
+        throw new Error('No job ID returned from server. Response: ' + JSON.stringify(response.data))
       }
 
       // Create object URL for video preview FIRST (before setting jobId)
