@@ -585,9 +585,9 @@ function VideoPlayer() {
     }
   }
 
-  // Show video immediately when uploaded (before processing starts)
+  // Only render if videoUrl exists (video has been uploaded)
   if (!videoUrl) {
-    return null
+    return null // Don't render anything if no video uploaded yet
   }
 
   console.log('VideoPlayer render:', {
@@ -685,7 +685,7 @@ function VideoPlayer() {
           )}
         </GlassCard>
       )}
-    </Container>
+    </>
   )
 }
 
