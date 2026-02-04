@@ -255,57 +255,53 @@ function VideoPlayer() {
       const currentTime = video.currentTime
       const fps = results.fps || 30
       
-      // Find exact frame matching current video time (all frames processed)
+      // Find closest frame for smooth playback
       let frame = null
-      let closestFrame = null
+      let nextFrame = null
       let minTimeDiff = Infinity
       
-      // Find frame with time closest to currentTime
       for (let i = 0; i < results.frames.length; i++) {
-        const timeDiff = Math.abs(results.frames[i].time - currentTime)
-        if (timeDiff < minTimeDiff) {
+        const timeDiff = results.frames[i].time - currentTime
+        
+        if (timeDiff >= 0 && timeDiff < minTimeDiff) {
           minTimeDiff = timeDiff
-          closestFrame = results.frames[i]
-        }
-        // Exact match (within 0.05 seconds)
-        if (timeDiff < 0.05) {
           frame = results.frames[i]
-          break
+          nextFrame = results.frames[i + 1] || frame
+        }
+        
+        if (timeDiff < 0 && Math.abs(timeDiff) < minTimeDiff) {
+          frame = results.frames[i]
         }
       }
       
-      // Use closest frame if no exact match
-      if (!frame && closestFrame) {
-        frame = closestFrame
-      }
-      
-      // Fallback to last frame
       if (!frame && results.frames.length > 0) {
         frame = results.frames[results.frames.length - 1]
+        nextFrame = frame
       }
 
       if (!frame?.saliency_heatmap) {
-        console.log('⚠️ No heatmap data for frame at time', currentTime)
         canvas.style.display = 'none'
         return
       }
 
       canvas.style.display = 'block'
-      console.log('🎨 Rendering heatmap for time', currentTime.toFixed(2), 's')
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // Interpolate between frames for dynamic, smooth heatmap changes
+      // Smooth interpolation between frames
       let saliencyMap = frame.saliency_heatmap
-      if (frame2 && frame2.saliency_heatmap && t > 0 && t < 1) {
-        // Interpolate between two frames for smooth transitions
-        const map1 = frame.saliency_heatmap
-        const map2 = frame2.saliency_heatmap
-        saliencyMap = map1.map((row, y) => 
-          row.map((val, x) => {
-            const val2 = map2[y]?.[x] ?? val
-            return val + (val2 - val) * t
-          })
-        )
+      if (nextFrame && nextFrame.saliency_heatmap && nextFrame !== frame) {
+        const timeDiff = nextFrame.time - frame.time
+        const t = timeDiff > 0 ? (currentTime - frame.time) / timeDiff : 0
+        const t_clamped = Math.max(0, Math.min(1, t))
+        
+        if (t_clamped > 0 && t_clamped < 1) {
+          saliencyMap = frame.saliency_heatmap.map((row, y) => 
+            row.map((val, x) => {
+              const val2 = nextFrame.saliency_heatmap[y]?.[x] ?? val
+              return val + (val2 - val) * t_clamped
+            })
+          )
+        }
       }
       
       const heatmapH = saliencyMap.length
@@ -315,12 +311,15 @@ function VideoPlayer() {
       const scaleX = canvas.width / heatmapW
       const scaleY = canvas.height / heatmapH
 
-      // Granular bilinear interpolation for smooth, pixel-level heatmap
+      // Clean heatmap rendering with annotations
       const imgData = ctx.createImageData(canvas.width, canvas.height)
+      
+      // Calculate attention percentage for annotation
+      let totalAttention = 0
+      let attentionPixels = 0
       
       for (let y = 0; y < canvas.height; y++) {
         for (let x = 0; x < canvas.width; x++) {
-          // Bilinear interpolation for granular, smooth heatmap
           const mapX = x / scaleX
           const mapY = y / scaleY
           const x1 = Math.floor(mapX)
@@ -331,70 +330,45 @@ function VideoPlayer() {
           const fx = mapX - x1
           const fy = mapY - y1
           
-          const val11 = saliencyMap[y1]?.[x1] || 0
-          const val21 = saliencyMap[y1]?.[x2] || 0
-          const val12 = saliencyMap[y2]?.[x1] || 0
-          const val22 = saliencyMap[y2]?.[x2] || 0
+          const val = (saliencyMap[y1]?.[x1] || 0) * (1 - fx) * (1 - fy) +
+                     (saliencyMap[y1]?.[x2] || 0) * fx * (1 - fy) +
+                     (saliencyMap[y2]?.[x1] || 0) * (1 - fx) * fy +
+                     (saliencyMap[y2]?.[x2] || 0) * fx * fy
           
-          // Bilinear interpolation
-          const val = val11 * (1 - fx) * (1 - fy) +
-                     val21 * fx * (1 - fy) +
-                     val12 * (1 - fx) * fy +
-                     val22 * fx * fy
-          
-          // Brighter, more generalized - only show main focus areas
-          if (val > 0.1) {  // Lower threshold for brighter display
-            // Bright green gradient - more intense
-            const intensity = Math.min(1, val * 1.5)  // Amplify brightness
+          if (val > 0.15) {
+            const intensity = Math.min(1, val * 1.2)
             const idx = (y * canvas.width + x) * 4
             
-            // Bright lime green to bright yellow-green
-            const green = Math.floor(100 + 155 * intensity)  // 100-255 (brighter)
-            const red = Math.floor(50 * intensity)  // Slight red tint for warmth
-            const alpha = Math.floor(150 + 105 * intensity)  // 150-255 opacity (more visible)
+            // Clean green gradient
+            const green = Math.floor(80 + 175 * intensity)
+            const alpha = Math.floor(140 + 115 * intensity)
             
-            imgData.data[idx] = red           // R - slight red
-            imgData.data[idx + 1] = green    // G - bright green
-            imgData.data[idx + 2] = 0        // B
-            imgData.data[idx + 3] = alpha     // A - brighter
+            imgData.data[idx] = 0
+            imgData.data[idx + 1] = green
+            imgData.data[idx + 2] = Math.floor(30 * (1 - intensity))
+            imgData.data[idx + 3] = alpha
+            
+            totalAttention += val
+            attentionPixels++
           }
         }
       }
-
-      // Apply Gaussian blur for smoother appearance
+      
       ctx.putImageData(imgData, 0, 0)
       
-      // Additional smoothing pass
-      const tempCanvas = document.createElement('canvas')
-      tempCanvas.width = canvas.width
-      tempCanvas.height = canvas.height
-      const tempCtx = tempCanvas.getContext('2d')
-      tempCtx.putImageData(imgData, 0, 0)
-      
-      // Draw blurred version with lower opacity for smoothness
-      ctx.save()
-      ctx.globalAlpha = 0.7
-      ctx.filter = 'blur(2px)'
-      ctx.drawImage(tempCanvas, 0, 0)
-      ctx.restore()
-      
-      // Draw sharp version on top
-      ctx.putImageData(imgData, 0, 0)
-      
-      // Draw fixation points (bright stars)
+      // Draw fixation points with clean annotations
       if (frame.fixation_points && frame.fixation_points.length > 0) {
         ctx.save()
-        frame.fixation_points.forEach((point, idx) => {
+        frame.fixation_points.forEach((point) => {
           const x = (point.x / frame.original_size[0]) * canvas.width
           const y = (point.y / frame.original_size[1]) * canvas.height
-          const size = 8 + (point.intensity * 8)  // 8-16px based on intensity
+          const size = 10 + (point.intensity * 6)
           
-          // Bright orange/red star
-          ctx.fillStyle = `rgba(255, ${200 - point.intensity * 100}, 0, 0.9)`
+          // Bright star
+          ctx.fillStyle = `rgba(255, 180, 0, 0.95)`
           ctx.strokeStyle = '#FFFFFF'
-          ctx.lineWidth = 2
+          ctx.lineWidth = 2.5
           
-          // Draw star shape
           ctx.beginPath()
           for (let i = 0; i < 5; i++) {
             const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2
@@ -407,12 +381,36 @@ function VideoPlayer() {
           ctx.fill()
           ctx.stroke()
           
-          // Time annotation
+          // Clean annotation
           ctx.fillStyle = '#FFFFFF'
-          ctx.font = 'bold 10px Arial'
+          ctx.strokeStyle = '#000000'
+          ctx.lineWidth = 3
+          ctx.font = 'bold 11px Arial'
           ctx.textAlign = 'center'
-          ctx.fillText(frame.time.toFixed(2) + 's', x, y + size + 12)
+          ctx.textBaseline = 'top'
+          
+          const label = `${frame.time.toFixed(1)}s`
+          ctx.strokeText(label, x, y + size + 8)
+          ctx.fillText(label, x, y + size + 8)
         })
+        ctx.restore()
+      }
+      
+      // Draw attention percentage annotation (top right)
+      if (attentionPixels > 0) {
+        const attentionPercent = ((totalAttention / attentionPixels) * 100).toFixed(1)
+        ctx.save()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+        ctx.fillRect(canvas.width - 120, 10, 110, 35)
+        
+        ctx.fillStyle = '#00FF88'
+        ctx.font = 'bold 12px Arial'
+        ctx.textAlign = 'left'
+        ctx.fillText(`Attention: ${attentionPercent}%`, canvas.width - 115, 20)
+        
+        ctx.fillStyle = '#FFFFFF'
+        ctx.font = '10px Arial'
+        ctx.fillText(`Time: ${currentTime.toFixed(1)}s`, canvas.width - 115, 35)
         ctx.restore()
       }
     }
