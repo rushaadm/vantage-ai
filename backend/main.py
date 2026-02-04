@@ -34,11 +34,11 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
     """Process a single frame - ultra memory efficient"""
     h, w = frame.shape[:2]
     
-    # Resize for processing
-    if w > 200:
-        scale = 200 / w
+    # Resize for processing (smaller for speed)
+    if w > 180:
+        scale = 180 / w
         new_h = int(h * scale)
-        frame_small = cv2.resize(frame, (200, new_h), interpolation=cv2.INTER_LINEAR)
+        frame_small = cv2.resize(frame, (180, new_h), interpolation=cv2.INTER_LINEAR)
     else:
         frame_small = frame
     
@@ -55,13 +55,13 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
     
     metrics = engine.calculate_metrics(saliency_map, motion_map)
     
-    # Generate smooth, rounded heatmap
+    # Generate smooth, rounded heatmap (smaller for speed)
     heatmap_h, heatmap_w = saliency_map.shape[:2]
-    target_w = max(40, heatmap_w // 4)  # Smaller for memory
-    target_h = max(40, heatmap_h // 4)
+    target_w = max(35, heatmap_w // 5)  # Smaller for speed
+    target_h = max(35, heatmap_h // 5)
     
     # Heavy blur for smooth, rounded appearance
-    saliency_blurred = cv2.GaussianBlur(saliency_map, (21, 21), 4.0)  # Larger blur for roundness
+    saliency_blurred = cv2.GaussianBlur(saliency_map, (21, 21), 4.0)
     motion_blurred = cv2.GaussianBlur(motion_map, (21, 21), 4.0)
     
     saliency_small = cv2.resize(saliency_blurred, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
@@ -71,15 +71,15 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
     saliency_small = np.round(saliency_small * 10) / 10
     motion_small = np.round(motion_small * 10) / 10
     
-    # Detect fixation points (eye-tracking data)
+    # Detect fixation points (eye-tracking data) - faster detection
     fixation_points = []
-    for y in range(3, heatmap_h - 3, 4):
-        for x in range(3, heatmap_w - 3, 4):
+    for y in range(4, heatmap_h - 4, 5):  # Sample every 5 pixels for speed
+        for x in range(4, heatmap_w - 4, 5):
             val = saliency_map[y, x]
             if val > 0.6:
                 is_max = True
-                for dy in [-3, -2, -1, 0, 1, 2, 3]:
-                    for dx in [-3, -2, -1, 0, 1, 2, 3]:
+                for dy in [-2, -1, 0, 1, 2]:
+                    for dx in [-2, -1, 0, 1, 2]:
                         if dx == 0 and dy == 0:
                             continue
                         if y + dy < 0 or y + dy >= heatmap_h or x + dx < 0 or x + dx >= heatmap_w:
@@ -94,11 +94,11 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
                         "x": int(x * w / heatmap_w),
                         "y": int(y * h / heatmap_h),
                         "intensity": float(val),
-                        "duration": 0.1  # Estimated fixation duration
+                        "duration": 0.1
                     })
-                    if len(fixation_points) >= 10:
+                    if len(fixation_points) >= 8:  # Limit to 8 for speed
                         break
-        if len(fixation_points) >= 10:
+        if len(fixation_points) >= 8:
             break
     
     frame_time = frame_idx / fps if fps > 0 else frame_idx / 30
@@ -115,7 +115,7 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
         "conflict": round(metrics["conflict"], 2),
         "saliency_heatmap": saliency_small.tolist(),
         "motion_heatmap": motion_small.tolist(),
-        "fixation_points": fixation_points[:10],
+        "fixation_points": fixation_points[:8],
         "original_size": [h, w],
         "heatmap_size": [target_h, target_w],
         # Eye-tracking psychology stats
@@ -123,7 +123,7 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
         "max_saliency": round(max_saliency, 3),
         "attention_spread": round(attention_spread, 3),
         "fixation_count": len(fixation_points)
-    }, metrics, frame_small.copy() if frame_idx % 20 == 19 else None  # Only keep every 20th for motion
+    }, metrics, frame_small.copy()  # Always return frame for motion
 
 def process_video(job_id: str, video_path: str):
     """NUCLEAR OPTION: Process in batches, save incrementally, delete frames immediately"""
@@ -151,7 +151,9 @@ def process_video(job_id: str, video_path: str):
         with open(result_path, "w") as f:
             json.dump(initial_data, f, separators=(',', ':'))
         
-        print(f"📹 Processing {frame_count} frames (NUCLEAR MODE: batches of 20)")
+        # Process HALF the frames (every 2nd frame) for speed
+        sample_rate = 2  # Process every 2nd frame (50% of frames)
+        print(f"📹 Processing {frame_count} frames (sampling every {sample_rate} frames = {frame_count // sample_rate} frames)")
         
         batch_size = 20
         all_entropies = []
@@ -163,6 +165,7 @@ def process_video(job_id: str, video_path: str):
         frame_idx = 0
         prev_frame = None
         batch_results = []
+        last_processed_idx = -1
         
         while True:
             ret, frame = cap.read()
@@ -172,6 +175,12 @@ def process_video(job_id: str, video_path: str):
                     _save_batch(job_id, batch_results, all_entropies, all_conflicts)
                     batch_results = []
                 break
+            
+            # Sample every 2nd frame (50% of frames)
+            if frame_idx % sample_rate != 0:
+                frame_idx += 1
+                del frame  # Delete immediately if not processing
+                continue
             
             # Process frame
             result, metrics, keep_frame = _process_single_frame(frame_idx, frame, prev_frame, fps)
@@ -183,11 +192,16 @@ def process_video(job_id: str, video_path: str):
             all_attention_spreads.append(result["attention_spread"])
             total_fixations += result["fixation_count"]
             
-            # Only keep frame for motion if it's the last of a batch
+            # Keep frame for motion calculation
             if keep_frame is not None:
                 prev_frame = keep_frame
+            elif last_processed_idx >= 0:
+                # Use previous processed frame for motion
+                prev_frame = frame.copy()
             else:
                 prev_frame = None
+            
+            last_processed_idx = frame_idx
             
             # DELETE frame immediately
             del frame
