@@ -145,7 +145,7 @@ function FileUpload() {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
-        timeout: 120000, // 120 second timeout for large files
+        timeout: 300000, // 300 second (5 minute) timeout for large files
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)

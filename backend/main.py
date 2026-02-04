@@ -407,18 +407,32 @@ async def upload_video(file: UploadFile = File(...), sample_rate: str = Form("2"
         video_path = UPLOAD_DIR / f"{job_id}{file_extension}"
         
         print(f"💾 Saving video to: {video_path}")
+        
+        # Read file in chunks to avoid memory issues and improve responsiveness
+        file_size = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
+        
         with open(video_path, "wb") as f:
-            content = await file.read()
-            if len(content) == 0:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Empty file"}
-                )
-            f.write(content)
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                file_size += len(chunk)
+                # Log progress for large files
+                if file_size % (10 * 1024 * 1024) == 0:  # Every 10MB
+                    print(f"📦 Received {file_size / (1024 * 1024):.1f} MB...")
         
-        print(f"✅ File saved: {len(content)} bytes")
+        if file_size == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Empty file"}
+            )
         
-        # Start background processing with sample_rate
+        print(f"✅ File saved: {file_size} bytes ({file_size / (1024 * 1024):.1f} MB)")
+        
+        # Return response immediately, then start processing in background
+        print(f"🚀 Starting background processing: job_id={job_id}, sample_rate={sample_rate}")
         asyncio.create_task(process_video(job_id, str(video_path), sample_rate))
         
         print(f"✅ Upload successful: job_id={job_id}, sample_rate={sample_rate}")
