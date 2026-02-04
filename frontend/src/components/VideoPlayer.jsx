@@ -141,7 +141,8 @@ function VideoPlayer() {
 
     const fetchResults = async () => {
       try {
-        const response = await axios.get(`http://localhost:8000/results/${jobId}`)
+        const apiUrl = API_URL || import.meta.env.VITE_API_URL || 'https://vantage-ai-25ct.onrender.com'
+        const response = await axios.get(`${apiUrl}/results/${jobId}`)
         
         if (response.data.status === 'error') {
           setLoading(false)
