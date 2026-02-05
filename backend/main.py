@@ -306,8 +306,14 @@ def _finalize_results(job_id, all_entropies, all_conflicts, all_saliencies, all_
         
         # CLARITY SCORE: Based on motion-saliency conflict (Itti & Koch, 2001)
         # Lower conflict = clearer visual hierarchy = higher clarity
-        # Normalize conflict (typically 0-5 range) to 0-100 scale
-        clarity_score = max(0, min(100, 100 - (avg_conflict * 20)))
+        # Normalize conflict - use a more reasonable scaling
+        # Conflict typically ranges from 0-10, so normalize better
+        if avg_conflict <= 0:
+            clarity_score = 100
+        else:
+            # Use logarithmic scaling for better distribution
+            normalized_conflict = min(1.0, avg_conflict / 5.0)  # Normalize to 0-1
+            clarity_score = max(0, min(100, 100 - (normalized_conflict * 60)))  # Scale 0-1 to 100-40
         
         # ATTENTION STABILITY: Based on entropy consistency (Tatler et al., 2011)
         # Lower entropy variance = more stable attention patterns

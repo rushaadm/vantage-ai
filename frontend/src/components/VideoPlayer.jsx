@@ -428,43 +428,50 @@ function VideoPlayer() {
           const radialFactor = 1 - (distFromCenter / maxDist) * 0.3  // Slight radial falloff
           val = val * radialFactor
           
-          if (val > 0.05) {
-            const intensity = Math.min(1, val)
+          // Much lower threshold - show more areas, but brighter green for focus spots
+          if (val > 0.02) {
+            // Boost intensity for brighter display
+            const intensity = Math.min(1, val * 1.5)  // Boost by 50%
             const idx = (y * canvas.width + x) * 4
             
-            // Smooth gradient: Blue → Teal → Green → Yellow → Orange → Red
+            // Gradient: Less blue, MORE BRIGHT GREEN on focus spots
             let r, g, b, alpha
             
-            if (intensity < 0.2) {
-              const t = intensity / 0.2
-              r = Math.floor(30 + 20 * t)
-              g = Math.floor(100 + 80 * t)
-              b = Math.floor(180 - 50 * t)
-              alpha = Math.floor(80 + 40 * t)
-            } else if (intensity < 0.4) {
-              const t = (intensity - 0.2) / 0.2
-              r = Math.floor(50 - 20 * t)
-              g = Math.floor(180 + 50 * t)
-              b = Math.floor(130 - 100 * t)
-              alpha = Math.floor(120 + 50 * t)
-            } else if (intensity < 0.6) {
-              const t = (intensity - 0.4) / 0.2
-              r = Math.floor(30 + 180 * t)
-              g = Math.floor(230 - 30 * t)
-              b = Math.floor(30 - 30 * t)
-              alpha = Math.floor(170 + 50 * t)
-            } else if (intensity < 0.8) {
-              const t = (intensity - 0.6) / 0.2
-              r = Math.floor(210 + 45 * t)
-              g = Math.floor(200 - 50 * t)
+            if (intensity < 0.15) {
+              // Very minimal blue - only for lowest values
+              const t = intensity / 0.15
+              r = Math.floor(20 + 30 * t)
+              g = Math.floor(80 + 120 * t)
+              b = Math.floor(150 - 50 * t)
+              alpha = Math.floor(120 + 60 * t)  // Brighter
+            } else if (intensity < 0.35) {
+              // Quick transition to green
+              const t = (intensity - 0.15) / 0.2
+              r = Math.floor(50 - 30 * t)
+              g = Math.floor(200 + 55 * t)  // Very bright green
+              b = Math.floor(100 - 100 * t)
+              alpha = Math.floor(180 + 50 * t)  // Much brighter
+            } else if (intensity < 0.55) {
+              // Bright green zone - MAIN FOCUS SPOTS
+              const t = (intensity - 0.35) / 0.2
+              r = Math.floor(20 + 50 * t)
+              g = Math.floor(255)  // Maximum green
               b = Math.floor(0)
-              alpha = Math.floor(220 + 35 * t)
+              alpha = Math.floor(230 + 25 * t)  // Very bright
+            } else if (intensity < 0.75) {
+              // Yellow-green transition
+              const t = (intensity - 0.55) / 0.2
+              r = Math.floor(70 + 150 * t)
+              g = Math.floor(255 - 30 * t)
+              b = Math.floor(0)
+              alpha = Math.floor(255)  // Maximum brightness
             } else {
-              const t = (intensity - 0.8) / 0.2
-              r = Math.floor(255)
-              g = Math.floor(150 - 150 * t)
+              // Orange-red for highest intensity
+              const t = (intensity - 0.75) / 0.25
+              r = Math.floor(220 + 35 * t)
+              g = Math.floor(225 - 100 * t)
               b = Math.floor(0)
-              alpha = Math.floor(255)
+              alpha = Math.floor(255)  // Maximum brightness
             }
             
             imgData.data[idx] = r
@@ -490,18 +497,27 @@ function VideoPlayer() {
       
       ctx.putImageData(imgData, 0, 0)
       
-      // Draw fixation points with clean annotations
+      // Draw fixation points as BRIGHT STARS
       if (frame.fixation_points && frame.fixation_points.length > 0) {
         ctx.save()
         frame.fixation_points.forEach((point) => {
           const x = (point.x / frame.original_size[0]) * canvas.width
           const y = (point.y / frame.original_size[1]) * canvas.height
-          const size = 10 + (point.intensity * 6)
+          const size = 12 + (point.intensity * 10)  // Bigger stars
           
-          // Bright star
-          ctx.fillStyle = `rgba(255, 180, 0, 0.95)`
+          // VERY BRIGHT star with glow effect
+          // Outer glow
+          const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2)
+          gradient.addColorStop(0, 'rgba(255, 255, 0, 0.8)')
+          gradient.addColorStop(0.5, 'rgba(255, 200, 0, 0.4)')
+          gradient.addColorStop(1, 'rgba(255, 150, 0, 0)')
+          ctx.fillStyle = gradient
+          ctx.fillRect(x - size * 2, y - size * 2, size * 4, size * 4)
+          
+          // Bright yellow/orange star
+          ctx.fillStyle = `rgba(255, 220, 0, 1.0)`  // Very bright yellow
           ctx.strokeStyle = '#FFFFFF'
-          ctx.lineWidth = 2.5
+          ctx.lineWidth = 3  // Thicker outline
           
           ctx.beginPath()
           for (let i = 0; i < 5; i++) {
@@ -515,17 +531,11 @@ function VideoPlayer() {
           ctx.fill()
           ctx.stroke()
           
-          // Clean annotation
+          // Bright white center dot
           ctx.fillStyle = '#FFFFFF'
-          ctx.strokeStyle = '#000000'
-          ctx.lineWidth = 3
-          ctx.font = 'bold 11px Arial'
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'top'
-          
-          const label = `${frame.time.toFixed(1)}s`
-          ctx.strokeText(label, x, y + size + 8)
-          ctx.fillText(label, x, y + size + 8)
+          ctx.beginPath()
+          ctx.arc(x, y, size * 0.3, 0, Math.PI * 2)
+          ctx.fill()
         })
         ctx.restore()
       }
