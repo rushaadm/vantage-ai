@@ -31,8 +31,8 @@ RESULTS_DIR.mkdir(exist_ok=True, parents=True)
 
 engine = VantageEngine()
 
-def _process_single_frame(frame_idx, frame, prev_frame, fps):
-    """Process a single frame - ultra memory efficient"""
+def _process_single_frame(frame_idx, frame, prev_frame, prev_saliency_map, fps):
+    """Process a single frame with advanced eye-tracking features"""
     h, w = frame.shape[:2]
     
     # Resize for processing (smaller for speed)
@@ -45,16 +45,29 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
     
     saliency_map = engine.get_saliency_map(frame_small)
     
+    # Initialize maps
+    motion_map = np.zeros((frame_small.shape[0], frame_small.shape[1]), dtype=np.float32)
+    flicker_map = None
+    
     if prev_frame is not None:
         if prev_frame.shape[1] != frame_small.shape[1] or prev_frame.shape[0] != frame_small.shape[0]:
             prev_frame_small = cv2.resize(prev_frame, (frame_small.shape[1], frame_small.shape[0]), interpolation=cv2.INTER_LINEAR)
         else:
             prev_frame_small = prev_frame
+        
+        # Advanced motion detection: Optical Flow
         motion_map = engine.get_motion_map(prev_frame_small, frame_small)
-    else:
-        motion_map = np.zeros((frame_small.shape[0], frame_small.shape[1]), dtype=np.float32)
+        
+        # Flicker detection
+        flicker_map = engine.get_flicker_map(prev_frame_small, frame_small)
     
-    metrics = engine.calculate_metrics(saliency_map, motion_map)
+    # Calculate comprehensive metrics with all features
+    metrics = engine.calculate_metrics(
+        saliency_map, 
+        motion_map, 
+        flicker_map=flicker_map,
+        prev_saliency=prev_saliency_map
+    )
     
     # Generate smooth, rounded heatmap (smaller for speed)
     heatmap_h, heatmap_w = saliency_map.shape[:2]
