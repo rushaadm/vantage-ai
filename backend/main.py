@@ -123,8 +123,15 @@ def _process_single_frame(frame_idx, frame, prev_frame, fps):
         "avg_saliency": round(avg_saliency, 3),
         "max_saliency": round(max_saliency, 3),
         "attention_spread": round(attention_spread, 3),
-        "fixation_count": len(fixation_points)
-    }, metrics, frame_small.copy()  # Always return frame for motion
+        "fixation_count": len(fixation_points),
+        # Advanced metrics
+        "spatial_coherence": round(metrics.get("spatial_coherence", 0), 3),
+        "temporal_stability": round(metrics.get("temporal_stability", 0), 3),
+        "flicker_sensitivity": round(metrics.get("flicker_sensitivity", 0), 3),
+        "visual_complexity": round(metrics.get("visual_complexity", 0), 3),
+        "is_saccade": metrics.get("is_saccade", False),
+        "saccade_distance": round(metrics.get("distance", 0), 3)
+    }, metrics, frame_small.copy(), saliency_map  # Return saliency map for next frame
 
 def process_video(job_id: str, video_path: str, sample_rate: int = 2):
     """NUCLEAR OPTION: Process in batches, save incrementally, delete frames immediately"""
@@ -221,23 +228,6 @@ def process_video(job_id: str, video_path: str, sample_rate: int = 2):
             
             # Update for next iteration
             prev_saliency_map = saliency_map.copy() if saliency_map is not None else None
-            
-            # Keep frame for motion calculation
-            if keep_frame is not None:
-                prev_frame = keep_frame
-            elif last_processed_idx >= 0:
-                # Use previous processed frame for motion
-                prev_frame = frame.copy()
-            else:
-                prev_frame = None
-            
-            last_processed_idx = frame_idx
-            
-            all_entropies.append(metrics["entropy"])
-            all_conflicts.append(metrics["conflict"])
-            all_saliencies.append(result["avg_saliency"])
-            all_attention_spreads.append(result["attention_spread"])
-            total_fixations += result["fixation_count"]
             
             # Keep frame for motion calculation
             if keep_frame is not None:
