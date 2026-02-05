@@ -202,6 +202,13 @@ def process_video(job_id: str, video_path: str, sample_rate: int = 2):
             )
             batch_results.append(result)
             
+            # Store basic metrics
+            all_entropies.append(metrics.get("entropy", 0))
+            all_conflicts.append(metrics.get("conflict", 0))
+            all_saliencies.append(result.get("avg_saliency", 0))
+            all_attention_spreads.append(result.get("attention_spread", 0))
+            total_fixations += result.get("fixation_count", 0)
+            
             # Store advanced metrics
             all_spatial_coherence.append(metrics.get("spatial_coherence", 0))
             all_temporal_stability.append(metrics.get("temporal_stability", 0))
@@ -214,6 +221,17 @@ def process_video(job_id: str, video_path: str, sample_rate: int = 2):
             
             # Update for next iteration
             prev_saliency_map = saliency_map.copy() if saliency_map is not None else None
+            
+            # Keep frame for motion calculation
+            if keep_frame is not None:
+                prev_frame = keep_frame
+            elif last_processed_idx >= 0:
+                # Use previous processed frame for motion
+                prev_frame = frame.copy()
+            else:
+                prev_frame = None
+            
+            last_processed_idx = frame_idx
             
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
