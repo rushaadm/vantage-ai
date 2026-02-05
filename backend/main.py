@@ -167,27 +167,53 @@ def process_video(job_id: str, video_path: str, sample_rate: int = 2):
         
         frame_idx = 0
         prev_frame = None
+        prev_saliency_map = None
         batch_results = []
         last_processed_idx = -1
+        
+        # Track advanced metrics
+        all_spatial_coherence = []
+        all_temporal_stability = []
+        all_flicker_sensitivity = []
+        all_visual_complexity = []
+        all_saccade_distances = []
+        saccade_count = 0
         
         while True:
             ret, frame = cap.read()
             if not ret:
                 # Process remaining batch
                 if batch_results:
-                    _save_batch(job_id, batch_results, all_entropies, all_conflicts)
+                    _save_batch(job_id, batch_results, all_entropies, all_conflicts,
+                               all_spatial_coherence, all_temporal_stability,
+                               all_flicker_sensitivity, all_visual_complexity)
                     batch_results = []
                 break
             
-            # Sample every 2nd frame (50% of frames)
+            # Sample every Nth frame based on sample_rate
             if frame_idx % sample_rate != 0:
                 frame_idx += 1
                 del frame  # Delete immediately if not processing
                 continue
             
-            # Process frame
-            result, metrics, keep_frame = _process_single_frame(frame_idx, frame, prev_frame, fps)
+            # Process frame with advanced features
+            result, metrics, keep_frame, saliency_map = _process_single_frame(
+                frame_idx, frame, prev_frame, prev_saliency_map, fps
+            )
             batch_results.append(result)
+            
+            # Store advanced metrics
+            all_spatial_coherence.append(metrics.get("spatial_coherence", 0))
+            all_temporal_stability.append(metrics.get("temporal_stability", 0))
+            all_flicker_sensitivity.append(metrics.get("flicker_sensitivity", 0))
+            all_visual_complexity.append(metrics.get("visual_complexity", 0))
+            
+            if metrics.get("is_saccade", False):
+                saccade_count += 1
+                all_saccade_distances.append(metrics.get("distance", 0))
+            
+            # Update for next iteration
+            prev_saliency_map = saliency_map.copy() if saliency_map is not None else None
             
             all_entropies.append(metrics["entropy"])
             all_conflicts.append(metrics["conflict"])
@@ -230,8 +256,13 @@ def process_video(job_id: str, video_path: str, sample_rate: int = 2):
         except:
             pass
         
-        # Finalize with psychology stats
-        _finalize_results(job_id, all_entropies, all_conflicts, all_saliencies, all_attention_spreads, total_fixations, start_time)
+        # Finalize with comprehensive psychology stats
+        _finalize_results(
+            job_id, all_entropies, all_conflicts, all_saliencies, all_attention_spreads, 
+            total_fixations, start_time,
+            all_spatial_coherence, all_temporal_stability, all_flicker_sensitivity,
+            all_visual_complexity, all_saccade_distances, saccade_count
+        )
         
     except Exception as e:
         print(f"❌ Processing error: {e}")
@@ -247,7 +278,9 @@ def process_video(job_id: str, video_path: str, sample_rate: int = 2):
                 "message": "Video processing failed."
             }, f)
 
-def _save_batch(job_id, batch_results, all_entropies, all_conflicts):
+def _save_batch(job_id, batch_results, all_entropies, all_conflicts, 
+                all_spatial_coherence=None, all_temporal_stability=None,
+                all_flicker_sensitivity=None, all_visual_complexity=None):
     """Save batch to JSON and immediately delete from memory"""
     result_path = RESULTS_DIR / f"{job_id}.json"
     
@@ -325,6 +358,14 @@ def _finalize_results(job_id, all_entropies, all_conflicts, all_saliencies, all_
         fixation_rate = total_fixations / len(data["frames"]) if data["frames"] else 0
         # Normalize: saliency (0-1) * 60 + fixation_rate (0-5) * 8
         engagement_score = max(0, min(100, (avg_saliency * 60) + (fixation_rate * 8)))
+        
+        # Advanced metrics
+        avg_spatial_coherence = float(np.mean(all_spatial_coherence)) if all_spatial_coherence else 0.5
+        avg_temporal_stability = float(np.mean(all_temporal_stability)) if all_temporal_stability else 0.5
+        avg_flicker_sensitivity = float(np.mean(all_flicker_sensitivity)) if all_flicker_sensitivity else 0.0
+        avg_visual_complexity = float(np.mean(all_visual_complexity)) if all_visual_complexity else 0.5
+        avg_saccade_distance = float(np.mean(all_saccade_distances)) if all_saccade_distances else 0.0
+        saccade_rate = saccade_count / len(data["frames"]) if data["frames"] else 0.0
     else:
         avg_entropy = max_entropy = min_entropy = std_entropy = 0
         avg_conflict = max_conflict = 0

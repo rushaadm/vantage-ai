@@ -691,6 +691,38 @@ function VideoPlayer() {
                 <StatLabel>Processing Time</StatLabel>
                 <StatValue>{results.processing_time?.toFixed(2) || '0'}s</StatValue>
               </StatRow>
+              <StatRow>
+                <StatLabel>
+                  Spatial Coherence
+                  <Tooltip data-tooltip={results.stats.score_explanations?.spatial_coherence || "Measures how clustered attention is. Higher values indicate more focused attention patterns."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{(results.stats.spatial_coherence * 100)?.toFixed(1) || '0'}%</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>
+                  Temporal Stability
+                  <Tooltip data-tooltip={results.stats.score_explanations?.temporal_stability || "Measures frame-to-frame consistency of attention. Higher values indicate smoother eye movements."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{(results.stats.temporal_stability * 100)?.toFixed(1) || '0'}%</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>
+                  Visual Complexity
+                  <Tooltip data-tooltip={results.stats.score_explanations?.visual_complexity || "Measures overall visual complexity based on edge density and color variance."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{(results.stats.visual_complexity * 100)?.toFixed(1) || '0'}%</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>
+                  Saccade Rate
+                  <Tooltip data-tooltip={results.stats.score_explanations?.saccade_rate || "Measures frequency of rapid eye movements (saccades). Higher values indicate more dynamic attention shifts."}>ℹ️</Tooltip>
+                </StatLabel>
+                <StatValue>{results.stats.saccade_rate?.toFixed(3) || '0'}/frame</StatValue>
+              </StatRow>
+              <StatRow>
+                <StatLabel>Total Saccades</StatLabel>
+                <StatValue>{results.stats.total_saccades || 0}</StatValue>
+              </StatRow>
             </StatsCard>
           )}
         </GlassCard>
